@@ -1,0 +1,77 @@
+{
+  "name": "claude-mission-control",
+  "version": "0.1.0",
+  "description": "A unified command center for managing multiple Claude Code sessions",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
+    "dev:react": "vite",
+    "dev:electron": "tsc -p electron/tsconfig.json && electron .",
+    "build": "npm run build:react && npm run build:electron",
+    "build:react": "vite build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "start": "electron .",
+    "dist": "npm run build && electron-builder"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexmeckes/flow.git"
+  },
+  "keywords": [
+    "claude",
+    "code",
+    "mission-control",
+    "electron",
+    "react"
+  ],
+  "author": "Alex Meckes",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/alexmeckes/flow/issues"
+  },
+  "homepage": "https://github.com/alexmeckes/flow#readme",
+  "build": {
+    "appId": "com.alexmeckes.claude-mission-control",
+    "productName": "Claude Mission Control",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.5.2",
+    "concurrently": "^9.1.2",
+    "electron": "^36.5.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "postcss-import": "^16.1.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^3.4.17",
+    "zustand": "^5.0.5"
+  }
+}
