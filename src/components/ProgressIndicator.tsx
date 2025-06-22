@@ -27,7 +27,7 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ progressSt
     return null;
   }
 
-  // Determine progress bar animation based on phase
+  // Determine icon animation based on phase
   const getProgressAnimation = () => {
     switch (progressState.phase) {
       case 'thinking':
@@ -40,22 +40,6 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ progressSt
         return '';
       default:
         return 'animate-pulse';
-    }
-  };
-
-  // Determine progress bar color based on phase
-  const getProgressColor = () => {
-    switch (progressState.phase) {
-      case 'thinking':
-        return 'bg-blue-500';
-      case 'working':
-        return 'bg-green-500';
-      case 'waiting':
-        return 'bg-yellow-500';
-      case 'complete':
-        return 'bg-gray-500';
-      default:
-        return 'bg-blue-500';
     }
   };
 
@@ -77,9 +61,9 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ progressSt
 
   return (
     <div className="mt-2 p-3 bg-claude-surface rounded-lg border border-claude-border">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-lg">{getPhaseIcon()}</span>
+          <span className={`text-lg ${getProgressAnimation()}`}>{getPhaseIcon()}</span>
           <span className="text-sm font-medium">{progressState.status}</span>
         </div>
         <div className="flex items-center gap-3 text-xs text-gray-400">
@@ -88,16 +72,6 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ progressSt
           )}
           <span>{formattedTime}</span>
         </div>
-      </div>
-      
-      <div className="w-full h-1 bg-claude-bg rounded-full overflow-hidden">
-        <div 
-          className={`h-full ${getProgressColor()} ${getProgressAnimation()} transition-all duration-300`}
-          style={{
-            width: progressState.phase === 'complete' ? '100%' : '60%',
-            opacity: progressState.phase === 'waiting' ? 0.5 : 1
-          }}
-        />
       </div>
     </div>
   );
