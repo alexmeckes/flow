@@ -8,6 +8,7 @@ interface TerminalInstance {
   terminal: Terminal;
   fitAddon: FitAddon;
   buffer: string[]; // Store all outputs as backup
+  lastWrittenIndex: number; // Track last written output index
 }
 
 const terminalInstances = new Map<string, TerminalInstance>();
@@ -53,7 +54,12 @@ export const useTerminal = (project: Project, fontSize: number) => {
         window.electronAPI.sendCommand(project.id, data);
       });
       
-      instance = { terminal: term, fitAddon: fit, buffer: [...project.output] };
+      instance = { 
+        terminal: term, 
+        fitAddon: fit, 
+        buffer: [...project.output],
+        lastWrittenIndex: -1
+      };
       terminalInstances.set(project.id, instance);
       
       // Write all existing output to the new terminal
@@ -62,7 +68,7 @@ export const useTerminal = (project: Project, fontSize: number) => {
         for (const output of project.output) {
           term.write(output);
         }
-        lastWrittenIndexRef.current = project.output.length - 1;
+        instance.lastWrittenIndex = project.output.length - 1;
       }
     } else {
       // Reusing existing terminal
@@ -79,7 +85,7 @@ export const useTerminal = (project: Project, fontSize: number) => {
           instance.terminal.write(output);
         }
         instance.buffer = [...project.output];
-        lastWrittenIndexRef.current = project.output.length - 1;
+        instance.lastWrittenIndex = project.output.length - 1;
       }
     }
     
@@ -110,22 +116,19 @@ export const useTerminal = (project: Project, fontSize: number) => {
     };
   }, [project.id, fontSize]);
   
-  // Track last written output index to avoid duplicates
-  const lastWrittenIndexRef = useRef<number>(-1);
-  
   // Update terminal when project output changes
   useEffect(() => {
     const instance = terminalInstances.get(project.id);
     if (!instance || !project.output.length) return;
     
     // Only write new outputs that haven't been written yet
-    const startIndex = lastWrittenIndexRef.current + 1;
+    const startIndex = instance.lastWrittenIndex + 1;
     if (startIndex < project.output.length) {
       console.log(`Writing outputs ${startIndex} to ${project.output.length - 1} for project ${project.id}`);
       for (let i = startIndex; i < project.output.length; i++) {
         instance.terminal.write(project.output[i]);
       }
-      lastWrittenIndexRef.current = project.output.length - 1;
+      instance.lastWrittenIndex = project.output.length - 1;
       // Update buffer
       instance.buffer = [...project.output];
     }
@@ -141,7 +144,7 @@ export const useTerminal = (project: Project, fontSize: number) => {
       console.log(`Clearing terminal for project ${project.id}`);
       instance.terminal.clear();
       instance.buffer = []; // Clear buffer
-      lastWrittenIndexRef.current = -1; // Reset tracking
+      instance.lastWrittenIndex = -1; // Reset tracking
     }
   }, [project.id, project.output.length]);
   
