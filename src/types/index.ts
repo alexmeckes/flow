@@ -7,6 +7,8 @@ export interface Project {
   output: string[];
   createdAt: Date;
   updatedAt: Date;
+  cursorWindowId?: number;
+  cursorPid?: number;
 }
 
 export interface Command {

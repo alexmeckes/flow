@@ -15,6 +15,8 @@ export interface Project {
   output: string[];
   createdAt: Date;
   updatedAt: Date;
+  cursorWindowId?: number;
+  cursorPid?: number;
 }
 
 export class ProcessManager extends EventEmitter {

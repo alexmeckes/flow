@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Project } from '../types';
 import { useProjectStore } from '../stores/projectStore';
 import { ClaudeTerminal } from './ClaudeTerminal';
@@ -11,11 +11,33 @@ interface ProjectCardProps {
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
   const [showOutput, setShowOutput] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isCursorOpen, setIsCursorOpen] = useState(false);
   const { setActiveProject, removeProject } = useProjectStore();
+  
+  // Check if Cursor is open periodically
+  useEffect(() => {
+    const checkCursorStatus = async () => {
+      const isOpen = await window.electronAPI.checkCursorOpen(project.path);
+      setIsCursorOpen(isOpen);
+    };
+    
+    // Check immediately
+    checkCursorStatus();
+    
+    // Check every 3 seconds
+    const interval = setInterval(checkCursorStatus, 3000);
+    
+    return () => clearInterval(interval);
+  }, [project.path]);
   
   const handleOpenInCursor = async () => {
     try {
       await window.electronAPI.openInCursor(project.path);
+      // Check status immediately after opening
+      setTimeout(async () => {
+        const isOpen = await window.electronAPI.checkCursorOpen(project.path);
+        setIsCursorOpen(isOpen);
+      }, 1000);
     } catch (error) {
       console.error('Failed to open in Cursor:', error);
     }
@@ -92,6 +114,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
           <h3 className="text-lg font-semibold">{project.name}</h3>
           <span className={`${getStatusColor()}`}>{getStatusIcon()}</span>
           <span className="text-sm text-gray-500 capitalize">[{project.status}]</span>
+          {isCursorOpen && (
+            <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">
+              Cursor
+            </span>
+          )}
         </div>
         <button
           onClick={(e) => {
@@ -126,9 +153,13 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
             e.stopPropagation();
             handleOpenInCursor();
           }}
-          className="px-3 py-1 text-sm bg-claude-border rounded hover:bg-gray-600"
+          className={`px-3 py-1 text-sm rounded transition-colors ${
+            isCursorOpen 
+              ? 'bg-green-600 text-white hover:bg-green-700' 
+              : 'bg-claude-border hover:bg-gray-600'
+          }`}
         >
-          Open in Cursor
+          {isCursorOpen ? '✓ Cursor Open' : 'Open in Cursor'}
         </button>
         
         <button

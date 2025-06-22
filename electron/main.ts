@@ -3,12 +3,14 @@ import * as path from 'path';
 import * as url from 'url';
 import { ProcessManager } from './services/ProcessManagerPTY';
 import { CursorIntegration } from './services/CursorIntegration';
+import { CursorIntegrationEnhanced } from './services/CursorIntegrationEnhanced';
 import { StateManager } from './services/StateManager';
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV === 'development';
 const processManager = new ProcessManager();
 const cursorIntegration = new CursorIntegration();
+const cursorIntegrationEnhanced = new CursorIntegrationEnhanced();
 const stateManager = new StateManager();
 
 function createWindow() {
@@ -109,9 +111,44 @@ processManager.on('output:cleared', (data) => {
   mainWindow?.webContents.send('process:output:cleared', data);
 });
 
-// Cursor integration handler
+// Cursor integration handlers
 ipcMain.handle('cursor:open', async (_, projectPath) => {
-  return cursorIntegration.openInCursor(projectPath);
+  try {
+    const result = await cursorIntegrationEnhanced.openInCursor(projectPath);
+    
+    // Update project with Cursor window info if we have it
+    const projects = processManager.getAllProjects();
+    const project = projects.find(p => p.path === projectPath);
+    if (project && result.windowId) {
+      project.cursorWindowId = result.windowId;
+      project.cursorPid = result.pid;
+    }
+    
+    return result;
+  } catch (error) {
+    // Fallback to basic integration
+    console.warn('Enhanced integration failed, using basic:', error);
+    return cursorIntegration.openInCursor(projectPath);
+  }
+});
+
+ipcMain.handle('cursor:checkOpen', async (_, projectPath) => {
+  try {
+    const window = await cursorIntegrationEnhanced.findCursorWindow(projectPath);
+    return window !== null;
+  } catch (error) {
+    return false;
+  }
+});
+
+ipcMain.handle('cursor:arrangeWindows', async () => {
+  try {
+    await cursorIntegrationEnhanced.arrangeWindows();
+    return true;
+  } catch (error) {
+    console.error('Failed to arrange windows:', error);
+    return false;
+  }
 });
 
 // State management handlers
@@ -173,6 +210,9 @@ app.on('before-quit', async () => {
   } catch (error) {
     console.error('Failed to save state on quit:', error);
   }
+  
+  // Cleanup window monitoring
+  cursorIntegrationEnhanced.dispose();
   
   processManager.cleanup();
 });

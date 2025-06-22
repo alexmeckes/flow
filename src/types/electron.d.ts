@@ -21,6 +21,8 @@ export interface IElectronAPI {
   
   // Cursor integration
   openInCursor: (projectPath: string) => Promise<void>;
+  checkCursorOpen: (projectPath: string) => Promise<boolean>;
+  arrangeCursorWindows: () => Promise<boolean>;
   
   // State management
   saveState: (state: any) => Promise<void>;

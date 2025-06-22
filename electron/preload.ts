@@ -44,6 +44,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openInCursor: (projectPath: string) => 
     ipcRenderer.invoke('cursor:open', projectPath),
   
+  checkCursorOpen: (projectPath: string) =>
+    ipcRenderer.invoke('cursor:checkOpen', projectPath),
+  
+  arrangeCursorWindows: () =>
+    ipcRenderer.invoke('cursor:arrangeWindows'),
+  
   // State management
   saveState: (state: any) => 
     ipcRenderer.invoke('state:save', state),

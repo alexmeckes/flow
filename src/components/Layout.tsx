@@ -123,12 +123,29 @@ export const Layout: React.FC = () => {
       </main>
       
       <footer className="px-6 py-4 border-t border-claude-border flex justify-between items-center">
-        <button
-          onClick={() => setShowAddProject(true)}
-          className="px-4 py-2 bg-claude-primary text-white rounded hover:bg-blue-600"
-        >
-          + Add Project
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAddProject(true)}
+            className="px-4 py-2 bg-claude-primary text-white rounded hover:bg-blue-600"
+          >
+            + Add Project
+          </button>
+          
+          {projects.length > 0 && (
+            <button
+              onClick={async () => {
+                const success = await window.electronAPI.arrangeCursorWindows();
+                if (success) {
+                  console.log('Windows arranged successfully');
+                }
+              }}
+              className="px-4 py-2 bg-claude-border text-white rounded hover:bg-gray-600"
+              title="Arrange all Cursor windows in a grid"
+            >
+              ⊞ Arrange Windows
+            </button>
+          )}
+        </div>
         
         <div className="text-sm text-gray-500">
           Press <kbd className="px-2 py-1 bg-claude-surface rounded">⌘K</kbd> to focus command bar
