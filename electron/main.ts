@@ -1,16 +1,15 @@
-import { app, BrowserWindow, ipcMain, Menu, Tray } from 'electron'
-import * as path from 'path'
-import { ProcessManager } from './services/ProcessManager'
-import { CursorIntegration } from './services/CursorIntegration'
-import { StateManager } from './services/StateManager'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import * as path from 'path';
+import * as url from 'url';
+import { ProcessManager } from './services/ProcessManagerPTY';
+import { CursorIntegration } from './services/CursorIntegration';
+import { StateManager } from './services/StateManager';
 
-let mainWindow: BrowserWindow | null = null
-let tray: Tray | null = null
-
-// Initialize services
-const processManager = new ProcessManager()
-const cursorIntegration = new CursorIntegration()
-const stateManager = new StateManager()
+let mainWindow: BrowserWindow | null = null;
+const isDev = process.env.NODE_ENV === 'development';
+const processManager = new ProcessManager();
+const cursorIntegration = new CursorIntegration();
+const stateManager = new StateManager();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -19,98 +18,161 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
       nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
     },
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#1a1a1a',
-    show: false,
-  })
+    show: false
+  });
 
-  // Load the app
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:3000')
-    mainWindow.webContents.openDevTools()
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:3000');
+    // Only open DevTools if explicitly requested
+    if (process.env.OPEN_DEVTOOLS === 'true') {
+      mainWindow.webContents.openDevTools();
+    }
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+    mainWindow.loadURL(
+      url.format({
+        pathname: path.join(__dirname, '../dist/index.html'),
+        protocol: 'file:',
+        slashes: true
+      })
+    );
   }
 
-  // Show window when ready
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
-  })
-
   mainWindow.on('closed', () => {
-    mainWindow = null
-  })
-  
-  // Set up process manager listeners
-  processManager.on('output', (projectId, output) => {
-    mainWindow?.webContents.send('process:output', projectId, output)
-  })
-  
-  processManager.on('status', (projectId, status) => {
-    mainWindow?.webContents.send('process:status', projectId, status)
-  })
-  
-  processManager.on('progress', (projectId, progress) => {
-    mainWindow?.webContents.send('process:progress', projectId, progress)
-  })
+    mainWindow = null;
+  });
 }
 
-// App event handlers
-app.whenReady().then(() => {
-  createWindow()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
-  })
-})
+app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    app.quit()
+    app.quit();
   }
-})
+});
 
-// IPC Handlers for process management
-ipcMain.handle('process:start', async (event, projectPath: string) => {
-  const projectId = Date.now().toString() // Generate unique ID
-  return await processManager.startProcess(projectId, projectPath)
-})
+app.on('activate', () => {
+  if (mainWindow === null) {
+    createWindow();
+  }
+});
 
-ipcMain.handle('process:sendCommand', async (event, projectId: string, command: string) => {
-  return await processManager.sendCommand(projectId, command)
-})
+// IPC handlers
+ipcMain.handle('app:version', () => {
+  return app.getVersion();
+});
 
-ipcMain.handle('process:stop', async (event, projectId: string) => {
-  return await processManager.stopProcess(projectId)
-})
+// Process management handlers
+ipcMain.handle('process:create', async (_, { name, path }) => {
+  return processManager.createProject(name, path);
+});
 
-// IPC Handlers for Cursor integration
-ipcMain.handle('cursor:open', async (event, projectPath: string) => {
-  return await cursorIntegration.openInCursor(projectPath)
-})
+ipcMain.handle('process:remove', async (_, projectId) => {
+  return processManager.removeProject(projectId);
+});
 
-// IPC Handlers for state management
-ipcMain.handle('state:save', async (event, state: any) => {
-  return await stateManager.saveState(state)
-})
+ipcMain.handle('process:start', async (_, projectId) => {
+  return processManager.startClaudeCode(projectId);
+});
+
+ipcMain.handle('process:stop', async (_, projectId) => {
+  return processManager.stopClaudeCode(projectId);
+});
+
+ipcMain.handle('process:command', async (_, { projectId, command }) => {
+  return processManager.sendCommand(projectId, command);
+});
+
+ipcMain.handle('process:clearOutput', async (_, projectId) => {
+  return processManager.clearProjectOutput(projectId);
+});
+
+// Forward process events to renderer
+processManager.on('output', (data) => {
+  mainWindow?.webContents.send('process:output', data);
+});
+
+processManager.on('status', (data) => {
+  mainWindow?.webContents.send('process:status', data);
+});
+
+processManager.on('output:cleared', (data) => {
+  mainWindow?.webContents.send('process:output:cleared', data);
+});
+
+// Cursor integration handler
+ipcMain.handle('cursor:open', async (_, projectPath) => {
+  return cursorIntegration.openInCursor(projectPath);
+});
+
+// State management handlers
+ipcMain.handle('state:save', async (_, state) => {
+  const projects = processManager.getAllProjects();
+  return stateManager.save(projects, state?.recentCommands || []);
+});
 
 ipcMain.handle('state:load', async () => {
-  const state = await stateManager.loadState()
-  return state || { projects: [], activeProjectId: null, commandHistory: [], settings: {
-    theme: 'dark',
-    keyboardShortcuts: {
-      focusCommandBar: 'cmd+k',
-      switchProject: 'cmd+1-9',
-      openInCursor: 'cmd+o',
-      viewOutput: 'cmd+l',
-    },
-    autoSaveState: true,
-    notificationsEnabled: true,
-  }}
-})
+  return stateManager.load();
+});
+
+// Dialog handlers
+ipcMain.handle('dialog:selectDirectory', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openDirectory'],
+    title: 'Select Project Directory',
+    buttonLabel: 'Select Directory'
+  });
+  
+  if (result.canceled) {
+    return null;
+  }
+  
+  return result.filePaths[0];
+});
+
+// Load state on app ready
+app.on('ready', async () => {
+  const savedState = await stateManager.load();
+  if (savedState) {
+    // Restore projects (but not processes)
+    for (const savedProject of savedState.projects) {
+      try {
+        processManager.createProject(savedProject.name, savedProject.path);
+      } catch (error) {
+        console.error(`Failed to restore project ${savedProject.name}:`, error);
+      }
+    }
+  }
+});
+
+// Save state periodically
+setInterval(async () => {
+  try {
+    const projects = processManager.getAllProjects();
+    await stateManager.save(projects);
+  } catch (error) {
+    console.error('Failed to auto-save state:', error);
+  }
+}, 30000); // Save every 30 seconds
+
+// Cleanup on app quit
+app.on('before-quit', async () => {
+  // Save final state
+  try {
+    const projects = processManager.getAllProjects();
+    await stateManager.save(projects);
+  } catch (error) {
+    console.error('Failed to save state on quit:', error);
+  }
+  
+  processManager.cleanup();
+});

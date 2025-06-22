@@ -1,107 +1,114 @@
-import { promises as fs } from 'fs'
-import { homedir } from 'os'
-import { join } from 'path'
-import { AppState } from '../types'
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { Project } from './ProcessManagerPTY';
+
+interface SavedProject {
+  id: string;
+  name: string;
+  path: string;
+  lastCommand?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AppState {
+  projects: SavedProject[];
+  recentCommands: string[];
+  version: string;
+}
 
 export class StateManager {
-  private configDir: string
-  private stateFile: string
+  private stateDir: string;
+  private stateFile: string;
   
   constructor() {
-    this.configDir = join(homedir(), '.claude-mission-control')
-    this.stateFile = join(this.configDir, 'state.json')
+    this.stateDir = path.join(os.homedir(), '.claude-mission-control');
+    this.stateFile = path.join(this.stateDir, 'state.json');
+    this.ensureStateDir();
   }
   
-  async ensureConfigDir(): Promise<void> {
-    try {
-      await fs.mkdir(this.configDir, { recursive: true })
-    } catch (error) {
-      console.error('Failed to create config directory:', error)
+  private ensureStateDir(): void {
+    if (!fs.existsSync(this.stateDir)) {
+      fs.mkdirSync(this.stateDir, { recursive: true });
     }
   }
   
-  async saveState(state: AppState): Promise<{ success: boolean }> {
+  async save(projects: Project[], recentCommands: string[] = []): Promise<void> {
     try {
-      await this.ensureConfigDir()
-      
-      // Convert dates to ISO strings for JSON serialization
-      const serializedState = {
-        ...state,
-        projects: state.projects.map(project => ({
-          ...project,
-          createdAt: project.createdAt.toISOString(),
-          updatedAt: project.updatedAt.toISOString(),
+      const state: AppState = {
+        projects: projects.map(p => ({
+          id: p.id,
+          name: p.name,
+          path: p.path,
+          lastCommand: p.lastCommand,
+          createdAt: p.createdAt.toISOString(),
+          updatedAt: p.updatedAt.toISOString()
         })),
-        commandHistory: state.commandHistory.map(command => ({
-          ...command,
-          timestamp: command.timestamp.toISOString(),
-        })),
-      }
+        recentCommands: recentCommands.slice(0, 100),
+        version: '1.0.0'
+      };
       
-      await fs.writeFile(
+      await fs.promises.writeFile(
         this.stateFile,
-        JSON.stringify(serializedState, null, 2),
-        'utf-8'
-      )
-      
-      return { success: true }
+        JSON.stringify(state, null, 2),
+        'utf8'
+      );
     } catch (error) {
-      console.error('Failed to save state:', error)
-      return { success: false }
+      console.error('Failed to save state:', error);
+      throw error;
     }
   }
   
-  async loadState(): Promise<AppState | null> {
+  async load(): Promise<AppState | null> {
     try {
-      const data = await fs.readFile(this.stateFile, 'utf-8')
-      const parsedState = JSON.parse(data)
-      
-      // Convert ISO strings back to Date objects
-      return {
-        ...parsedState,
-        projects: parsedState.projects.map((project: any) => ({
-          ...project,
-          createdAt: new Date(project.createdAt),
-          updatedAt: new Date(project.updatedAt),
-        })),
-        commandHistory: parsedState.commandHistory.map((command: any) => ({
-          ...command,
-          timestamp: new Date(command.timestamp),
-        })),
-      }
-    } catch (error) {
-      // File doesn't exist or is corrupted, return null
-      return null
-    }
-  }
-  
-  async getRecentCommands(projectId?: string, limit: number = 10): Promise<string[]> {
-    try {
-      const state = await this.loadState()
-      if (!state) return []
-      
-      let commands = state.commandHistory
-      
-      if (projectId) {
-        commands = commands.filter(cmd => cmd.projectId === projectId)
+      if (!fs.existsSync(this.stateFile)) {
+        return null;
       }
       
-      // Get unique commands
-      const uniqueCommands = Array.from(
-        new Set(commands.map(cmd => cmd.command))
-      )
+      const data = await fs.promises.readFile(this.stateFile, 'utf8');
       
-      return uniqueCommands.slice(0, limit)
+      // Check if file is empty
+      if (!data || data.trim() === '') {
+        console.log('State file is empty, returning null');
+        return null;
+      }
+      
+      const state = JSON.parse(data) as AppState;
+      
+      // Validate state structure
+      if (!state.projects || !Array.isArray(state.projects)) {
+        console.warn('Invalid state file structure');
+        return null;
+      }
+      
+      return state;
     } catch (error) {
-      return []
+      console.error('Failed to load state:', error);
+      // Delete corrupted state file
+      try {
+        if (fs.existsSync(this.stateFile)) {
+          fs.unlinkSync(this.stateFile);
+          console.log('Deleted corrupted state file');
+        }
+      } catch (deleteError) {
+        console.error('Failed to delete corrupted state file:', deleteError);
+      }
+      return null;
     }
   }
   
   async clearState(): Promise<void> {
     try {
-      await fs.unlink(this.stateFile)
+      if (fs.existsSync(this.stateFile)) {
+        await fs.promises.unlink(this.stateFile);
+      }
     } catch (error) {
-      // File doesn't exist, that's okay
+      console.error('Failed to clear state:', error);
     }
+  }
+  
+  getStateDir(): string {
+    return this.stateDir;
   }
 }

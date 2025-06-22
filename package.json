@@ -4,14 +4,16 @@
   "description": "A unified command center for managing multiple Claude Code sessions",
   "main": "dist/electron/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
-    "dev:react": "vite",
-    "dev:electron": "tsc -p electron/tsconfig.json && electron .",
-    "build": "npm run build:react && npm run build:electron",
-    "build:react": "vite build",
+    "dev": "npm run compile:electron && concurrently \"npm run dev:vite\" \"npm run dev:electron-watch\"",
+    "dev:vite": "vite",
+    "dev:electron-watch": "cross-env NODE_ENV=development electron .",
+    "compile:electron": "tsc -p electron/tsconfig.json",
+    "build": "npm run build:vite && npm run build:electron",
+    "build:vite": "vite build",
     "build:electron": "tsc -p electron/tsconfig.json",
     "start": "electron .",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "test": "vitest"
   },
   "repository": {
     "type": "git",
@@ -55,23 +57,30 @@
     }
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
     "@types/node": "^24.0.3",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.5.2",
     "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
     "electron": "^36.5.0",
     "electron-builder": "^26.0.12",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "@types/uuid": "^9.0.7",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "autoprefixer": "^10.4.21",
+    "node-pty": "^1.0.0",
     "postcss": "^8.5.6",
     "postcss-import": "^16.1.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwindcss": "^3.4.17",
+    "uuid": "^9.0.1",
     "zustand": "^5.0.5"
   }
 }

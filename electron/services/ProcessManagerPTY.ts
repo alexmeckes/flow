@@ -1,15 +1,16 @@
-import { ChildProcess, spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as pty from 'node-pty';
+// Removed complex parsers - let's keep it simple
 
 export interface Project {
   id: string;
   name: string;
   path: string;
   status: 'active' | 'idle' | 'error';
-  claudeProcess?: ChildProcess;
+  claudeProcess?: pty.IPty;
   lastCommand?: string;
   output: string[];
   createdAt: Date;
@@ -65,86 +66,69 @@ export class ProcessManager extends EventEmitter {
     if (!project) throw new Error(`Project ${projectId} not found`);
     
     if (project.claudeProcess) {
-      throw new Error(`Claude Code already running for project ${projectId}`);
+      throw new Error(`Claude already running for project ${projectId}`);
     }
     
     try {
-      // Determine which command to use
-      let command = 'claude';
+      // Create a pseudo-terminal with claude or test script
+      let shell = process.platform === 'win32' ? 'claude.exe' : 'claude';
       let args: string[] = [];
-      let useNonInteractive = false;
       
-      // Check if claude exists first
-      try {
-        const checkCommand = process.platform === 'win32' ? 'where' : 'which';
-        execSync(`${checkCommand} claude`);
-        
-        // For now, let's use interactive mode but we could switch to non-interactive
-        // by setting useNonInteractive = true and handling commands differently
-        useNonInteractive = false;
-      } catch (error) {
-        // Fallback to a test command if claude not found
-        console.warn('Claude CLI not found, using test mode with bash');
-        command = 'bash';
-        args = ['-c', 'echo "Claude Code simulator started. Type commands to see them echoed back."; while read line; do echo "Received: $line"; done'];
+      // For testing, use our simulator if claude not found
+      if (process.env.USE_TEST_CLAUDE === 'true') {
+        shell = 'node';
+        args = [path.join(__dirname, '../../test-claude-simulator.js')];
+        console.log('Using Claude simulator for testing');
       }
       
-      project.claudeProcess = spawn(command, args, {
+      project.claudeProcess = pty.spawn(shell, args, {
+        name: 'xterm-256color',
+        cols: 80,
+        rows: 30,
         cwd: project.path,
-        shell: true,
-        env: { ...process.env }
+        env: process.env as { [key: string]: string }
       });
       
       project.status = 'active';
       project.updatedAt = new Date();
       
-      // Add initial message
-      const startMessage = `Starting Claude in ${project.path}...\n`;
-      project.output.push(startMessage);
-      this.emit('output', { projectId, output: startMessage });
+      // Simple deduplication state
+      let lastLine = '';
+      let lastEmittedLine = '';
       
-      // Handle stdout
-      project.claudeProcess.stdout?.on('data', (data) => {
-        const output = data.toString();
-        console.log(`[${project.name}] stdout:`, output);
-        project.output.push(output);
+      // Handle output from Claude
+      project.claudeProcess.onData((data: string) => {
+        // Just emit the raw data - let the frontend handle display
+        // This preserves Claude's TUI behavior
+        project.output.push(data);
+        this.emit('output', { projectId, output: data });
         
-        // Keep only last 1000 lines
+        // Log for debugging
+        console.log(`[${project.name}] Raw output:`, JSON.stringify(data.substring(0, 100)));
+        
+        // Keep only last 1000 entries
         if (project.output.length > 1000) {
           project.output = project.output.slice(-1000);
         }
-        
-        this.emit('output', { projectId, output });
-      });
-      
-      // Handle stderr
-      project.claudeProcess.stderr?.on('data', (data) => {
-        const output = data.toString();
-        console.log(`[${project.name}] stderr:`, output);
-        project.output.push(`[STDERR] ${output}`);
-        this.emit('output', { projectId, output: `[STDERR] ${output}` });
       });
       
       // Handle process exit
-      project.claudeProcess.on('exit', (code) => {
-        project.status = code === 0 ? 'idle' : 'error';
+      project.claudeProcess.onExit(({ exitCode, signal }) => {
+        console.log(`Claude process exited with code ${exitCode}, signal ${signal}`);
+        project.status = exitCode === 0 ? 'idle' : 'error';
         project.claudeProcess = undefined;
         project.updatedAt = new Date();
         this.emit('status', { projectId, status: project.status });
       });
       
-      // Handle process error
-      project.claudeProcess.on('error', (err) => {
-        project.status = 'error';
-        project.output.push(`[ERROR] Process error: ${err.message}`);
-        project.claudeProcess = undefined;
-        project.updatedAt = new Date();
-        this.emit('status', { projectId, status: 'error' });
-      });
-      
       this.emit('status', { projectId, status: 'active' });
-    } catch (error) {
+      
+      // Give Claude a moment to start up
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+    } catch (error: any) {
       project.status = 'error';
+      console.error(`Failed to start Claude for project ${projectId}:`, error);
       throw error;
     }
   }
@@ -154,12 +138,15 @@ export class ProcessManager extends EventEmitter {
     if (!project || !project.claudeProcess) return;
     
     try {
-      project.claudeProcess.kill('SIGTERM');
+      // Send Ctrl+D to gracefully exit
+      project.claudeProcess.write('\x04');
+      
+      // Give it time to exit gracefully, then kill if needed
       setTimeout(() => {
         if (project.claudeProcess) {
-          project.claudeProcess.kill('SIGKILL');
+          project.claudeProcess.kill();
         }
-      }, 5000);
+      }, 2000);
     } catch (error) {
       console.error(`Error stopping process for project ${projectId}:`, error);
     }
@@ -169,25 +156,29 @@ export class ProcessManager extends EventEmitter {
     const project = this.projects.get(projectId);
     if (!project) throw new Error(`Project ${projectId} not found`);
     
-    if (!project.claudeProcess || !project.claudeProcess.stdin) {
+    if (!project.claudeProcess) {
       throw new Error(`Claude not running for project ${projectId}`);
     }
     
-    project.lastCommand = command;
     project.status = 'active';
     project.updatedAt = new Date();
     
-    // Add command to output for visibility
-    const commandOutput = `\n> ${command}\n`;
-    project.output.push(commandOutput);
-    this.emit('output', { projectId, output: commandOutput });
+    // With xterm.js, we're sending raw keystrokes, not full commands
+    // Just pass them through directly to the PTY
+    project.claudeProcess.write(command);
     
-    // Send command to process stdin
-    console.log(`Sending command to ${project.name}: ${command}`);
-    
-    // Send command with double newline - many chat interfaces use empty line to submit
-    project.claudeProcess.stdin.write(command + '\n\n');
-    console.log(`Sent command with double newline to ${project.name}`);
+    // Log non-printable characters for debugging
+    if (command === '\r' || command === '\n') {
+      console.log(`[${project.name}] Sent: <ENTER>`);
+    } else if (command === '\x7f' || command === '\b') {
+      console.log(`[${project.name}] Sent: <BACKSPACE>`);
+    } else if (command === '\x03') {
+      console.log(`[${project.name}] Sent: <CTRL-C>`);
+    } else if (command === '\x04') {
+      console.log(`[${project.name}] Sent: <CTRL-D>`);
+    } else if (command.length === 1 && command.charCodeAt(0) < 32) {
+      console.log(`[${project.name}] Sent control char: 0x${command.charCodeAt(0).toString(16)}`);
+    }
     
     this.emit('status', { projectId, status: 'active' });
   }
@@ -200,6 +191,19 @@ export class ProcessManager extends EventEmitter {
     return Array.from(this.projects.values());
   }
   
+  // Clear output for a specific project
+  clearProjectOutput(projectId: string): void {
+    const project = this.projects.get(projectId);
+    if (!project) return;
+    
+    project.output = [];
+    project.updatedAt = new Date();
+    
+    // Nothing extra to clear
+    
+    this.emit('output:cleared', { projectId });
+  }
+  
   // Clean up all processes on shutdown
   cleanup(): void {
     for (const project of this.projects.values()) {
@@ -207,5 +211,6 @@ export class ProcessManager extends EventEmitter {
         this.stopClaudeCode(project.id);
       }
     }
+    // Cleanup complete
   }
 }

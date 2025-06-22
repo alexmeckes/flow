@@ -1,91 +1,127 @@
-import { useState, useRef, useEffect } from 'react'
-import { useProjectStore } from '../stores/projectStore'
+import React, { useState, useRef, useEffect } from 'react';
+import { useProjectStore } from '../stores/projectStore';
+import { v4 as uuidv4 } from 'uuid';
 
-function CommandBar() {
-  const [command, setCommand] = useState('')
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+export const CommandBar: React.FC = () => {
+  const [command, setCommand] = useState('');
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const inputRef = useRef<HTMLInputElement>(null);
   
-  const { projects, activeProjectId, sendCommand, commandHistory } = useProjectStore()
+  const { 
+    projects, 
+    activeProjectId, 
+    commandHistory,
+    addCommand,
+    addToCommandHistory 
+  } = useProjectStore();
   
-  // Default to active project
-  useEffect(() => {
-    if (activeProjectId && !selectedProjectId) {
-      setSelectedProjectId(activeProjectId)
-    }
-  }, [activeProjectId, selectedProjectId])
+  const activeProject = projects.find(p => p.id === activeProjectId);
   
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
+    if (!command.trim()) return;
     
-    if (!command.trim() || !selectedProjectId) return
+    // Parse command for @ mentions
+    const commandParts = command.match(/^@(\w+)\s+(.+)$/);
+    let targetProjectId = activeProjectId;
+    let actualCommand = command;
     
-    const project = projects.find(p => p.id === selectedProjectId)
-    if (!project) return
+    if (commandParts) {
+      // Find project by name or number
+      const projectRef = commandParts[1];
+      const projectIndex = parseInt(projectRef) - 1;
+      
+      if (!isNaN(projectIndex) && projects[projectIndex]) {
+        targetProjectId = projects[projectIndex].id;
+      } else {
+        const project = projects.find(p => 
+          p.name.toLowerCase().startsWith(projectRef.toLowerCase())
+        );
+        if (project) {
+          targetProjectId = project.id;
+        }
+      }
+      
+      actualCommand = commandParts[2];
+    }
     
-    await sendCommand(selectedProjectId, command)
-    setCommand('')
-  }
+    if (!targetProjectId) {
+      console.error('No project selected');
+      return;
+    }
+    
+    try {
+      // Send each character of the command individually, like typing
+      for (const char of actualCommand) {
+        await window.electronAPI.sendCommand(targetProjectId, char);
+      }
+      // Then send Enter
+      await window.electronAPI.sendCommand(targetProjectId, '\r');
+      
+      // Add to history
+      addCommand({
+        id: uuidv4(),
+        projectId: targetProjectId,
+        command: actualCommand,
+        timestamp: new Date()
+      });
+      
+      addToCommandHistory(command);
+      setCommand('');
+      setHistoryIndex(-1);
+    } catch (error) {
+      console.error('Failed to send command:', error);
+    }
+  };
   
-  const handleProjectSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedProjectId(e.target.value)
-  }
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (historyIndex < commandHistory.length - 1) {
+        const newIndex = historyIndex + 1;
+        setHistoryIndex(newIndex);
+        setCommand(commandHistory[newIndex]);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIndex > 0) {
+        const newIndex = historyIndex - 1;
+        setHistoryIndex(newIndex);
+        setCommand(commandHistory[newIndex]);
+      } else if (historyIndex === 0) {
+        setHistoryIndex(-1);
+        setCommand('');
+      }
+    }
+  };
   
-  // Get recent commands for autocomplete
-  const recentCommands = commandHistory
-    .filter(cmd => cmd.projectId === selectedProjectId)
-    .map(cmd => cmd.command)
-    .filter((cmd, index, self) => self.indexOf(cmd) === index) // Remove duplicates
-    .slice(0, 5)
+  // Focus on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
   
   return (
-    <div className="px-6 pb-4">
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <select
-          value={selectedProjectId || ''}
-          onChange={handleProjectSelect}
-          className="px-3 py-2 bg-claude-surface border border-claude-border rounded text-gray-100 focus:outline-none focus:border-claude-primary"
-        >
-          <option value="" disabled>Select project</option>
-          {projects.map((project, index) => (
-            <option key={project.id} value={project.id}>
-              {index + 1}. {project.name}
-            </option>
-          ))}
-        </select>
-        
-        <div className="flex-1 relative">
-          <input
-            ref={inputRef}
-            type="text"
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            placeholder="Enter command..."
-            data-command-input
-            className="w-full px-4 py-2 bg-claude-surface border border-claude-border rounded text-gray-100 placeholder-gray-500 focus:outline-none focus:border-claude-primary"
-            list="recent-commands"
-          />
-          <datalist id="recent-commands">
-            {recentCommands.map((cmd, index) => (
-              <option key={index} value={cmd} />
-            ))}
-          </datalist>
-        </div>
-        
+    <form onSubmit={handleSubmit} className="p-4 border-b border-claude-border">
+      <div className="flex items-center gap-2">
+        <span className="text-gray-500">
+          {activeProject ? `@${activeProject.name}` : 'No project selected'}
+        </span>
+        <input
+          ref={inputRef}
+          type="text"
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Enter command or response... (use @project to target specific project)"
+          className="flex-1 bg-claude-surface text-gray-100 px-3 py-2 rounded border border-claude-border focus:border-claude-primary focus:outline-none"
+        />
         <button
           type="submit"
-          disabled={!command.trim() || !selectedProjectId}
-          className="px-6 py-2 bg-claude-primary text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 bg-claude-primary text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-claude-primary"
         >
           Send
         </button>
-      </form>
-      
-      <div className="mt-2 text-xs text-gray-500">
-        Press Cmd+K to focus • Cmd+1-9 to switch projects
       </div>
-    </div>
-  )
-}
-
-export default CommandBar
+    </form>
+  );
+};

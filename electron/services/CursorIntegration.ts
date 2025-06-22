@@ -1,61 +1,57 @@
-import { spawn } from 'child_process'
-import { platform } from 'os'
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as path from 'path';
+
+const execAsync = promisify(exec);
 
 export class CursorIntegration {
-  async openInCursor(projectPath: string): Promise<{ success: boolean }> {
+  async openInCursor(projectPath: string): Promise<void> {
     try {
-      const cursorCommand = this.getCursorCommand()
-      
-      // Spawn Cursor with the project path
-      const cursorProcess = spawn(cursorCommand, [projectPath], {
-        detached: true,
-        stdio: 'ignore',
-        shell: true
-      })
-      
-      // Detach the process so it continues running independently
-      cursorProcess.unref()
-      
-      return { success: true }
+      if (process.platform === 'darwin') {
+        // macOS
+        await execAsync(`open -a "Cursor" "${projectPath}"`);
+      } else if (process.platform === 'win32') {
+        // Windows
+        await execAsync(`start "" "cursor" "${projectPath}"`);
+      } else {
+        // Linux
+        await execAsync(`cursor "${projectPath}"`);
+      }
     } catch (error) {
-      console.error('Failed to open Cursor:', error)
-      return { success: false }
+      // If Cursor command fails, try alternative methods
+      if (process.platform === 'darwin') {
+        // Try opening with full app path
+        try {
+          await execAsync(`open -a "/Applications/Cursor.app" "${projectPath}"`);
+        } catch {
+          throw new Error('Cursor IDE not found. Please ensure Cursor is installed.');
+        }
+      } else {
+        throw new Error('Failed to open Cursor. Please ensure Cursor is installed and available in PATH.');
+      }
     }
   }
   
-  private getCursorCommand(): string {
-    // Different commands for different platforms
-    const system = platform()
-    
-    switch (system) {
-      case 'darwin': // macOS
-        return 'cursor'
-      case 'win32': // Windows
-        return 'cursor.exe'
-      case 'linux':
-        return 'cursor'
-      default:
-        return 'cursor'
+  async checkCursorInstalled(): Promise<boolean> {
+    try {
+      if (process.platform === 'darwin') {
+        // Check if Cursor.app exists
+        const { stdout } = await execAsync('ls /Applications/ | grep -i cursor');
+        return stdout.includes('Cursor');
+      } else {
+        // Check if cursor command exists
+        await execAsync('which cursor');
+        return true;
+      }
+    } catch {
+      return false;
     }
   }
   
-  async findCursorWindows(): Promise<string[]> {
+  async findCursorWindows(): Promise<any[]> {
     // This would require platform-specific window management APIs
-    // For now, we'll just return an empty array
-    // In a real implementation, you might use:
-    // - macOS: AppleScript or Accessibility APIs
-    // - Windows: Windows API via node-ffi or edge-js
-    // - Linux: X11 or Wayland APIs
-    return []
-  }
-  
-  async focusWindow(_windowId: string): Promise<void> {
-    // Platform-specific window focusing
-    // Would require native bindings
-  }
-  
-  async arrangeWindows(): Promise<void> {
-    // Optional feature to arrange multiple Cursor windows
-    // Would require native window management APIs
+    // For now, we'll return an empty array
+    // In a real implementation, you'd use node-window-manager or similar
+    return [];
   }
 }

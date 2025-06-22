@@ -1,147 +1,235 @@
-import { useState } from 'react'
-import { Project } from '../types'
-import { useProjectStore } from '../stores/projectStore'
+import React, { useState } from 'react';
+import { Project } from '../types';
+import { useProjectStore } from '../stores/projectStore';
+import { ClaudeTerminal } from './ClaudeTerminal';
 
 interface ProjectCardProps {
-  project: Project
-  index: number
-  isActive: boolean
+  project: Project;
+  index: number;
 }
 
-function ProjectCard({ project, index, isActive }: ProjectCardProps) {
-  const [showOutput, setShowOutput] = useState(false)
-  const { removeProject, setActiveProject } = useProjectStore()
-  
-  const statusColors = {
-    active: 'text-claude-success',
-    idle: 'text-gray-400',
-    error: 'text-claude-error',
-  }
-  
-  const statusIcons = {
-    active: '🟢',
-    idle: '⚪',
-    error: '🔴',
-  }
+export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
+  const [showOutput, setShowOutput] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const { setActiveProject, removeProject } = useProjectStore();
   
   const handleOpenInCursor = async () => {
     try {
-      await window.electronAPI.openInCursor(project.path)
+      await window.electronAPI.openInCursor(project.path);
     } catch (error) {
-      console.error('Failed to open in Cursor:', error)
+      console.error('Failed to open in Cursor:', error);
     }
-  }
+  };
   
-  const handleRemove = () => {
-    if (confirm(`Remove project "${project.name}"?`)) {
-      removeProject(project.id)
+  const handleStart = async () => {
+    try {
+      await window.electronAPI.startClaudeCode(project.id);
+    } catch (error) {
+      console.error('Failed to start Claude Code:', error);
     }
-  }
+  };
+  
+  const handleStop = async () => {
+    try {
+      await window.electronAPI.stopClaudeCode(project.id);
+    } catch (error) {
+      console.error('Failed to stop Claude Code:', error);
+    }
+  };
+  
+  const handleRemove = async () => {
+    if (confirm(`Remove project "${project.name}"?`)) {
+      try {
+        // Clean up terminal instance if it exists
+        const terminalInstances = (window as any).__terminalInstances;
+        if (terminalInstances && terminalInstances.has(project.id)) {
+          const instance = terminalInstances.get(project.id);
+          instance.terminal.dispose();
+          terminalInstances.delete(project.id);
+        }
+        
+        await window.electronAPI.removeProject(project.id);
+        removeProject(project.id);
+      } catch (error) {
+        console.error('Failed to remove project:', error);
+      }
+    }
+  };
+  
+  // Quick action buttons for common responses
+  const handleQuickResponse = async (response: string) => {
+    try {
+      await window.electronAPI.sendCommand(project.id, response);
+    } catch (error) {
+      console.error('Failed to send quick response:', error);
+    }
+  };
+  
+  const getStatusColor = () => {
+    switch (project.status) {
+      case 'active': return 'text-claude-success';
+      case 'error': return 'text-claude-error';
+      default: return 'text-gray-500';
+    }
+  };
+  
+  const getStatusIcon = () => {
+    switch (project.status) {
+      case 'active': return '●';
+      case 'error': return '⚠️';
+      default: return '○';
+    }
+  };
   
   return (
-    <div
-      className={`bg-claude-surface border rounded-lg p-4 transition-all ${
-        isActive ? 'border-claude-primary ring-2 ring-claude-primary ring-opacity-50' : 'border-claude-border'
-      }`}
+    <div 
+      className="bg-claude-surface border border-claude-border rounded-lg p-4 hover:border-gray-600 transition-colors cursor-pointer"
       onClick={() => setActiveProject(project.id)}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className="text-2xl">{index}️⃣</span>
-          <h3 className="text-lg font-semibold text-gray-100">{project.name}</h3>
+          <span className="text-2xl">{index + 1}️⃣</span>
+          <h3 className="text-lg font-semibold">{project.name}</h3>
+          <span className={`${getStatusColor()}`}>{getStatusIcon()}</span>
+          <span className="text-sm text-gray-500 capitalize">[{project.status}]</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`${statusColors[project.status]} text-sm font-medium`}>
-            {statusIcons[project.status]} {project.status.charAt(0).toUpperCase() + project.status.slice(1)}
-          </span>
-        </div>
-      </div>
-      
-      {/* Path */}
-      <p className="text-sm text-gray-400 mb-3 font-mono truncate">{project.path}</p>
-      
-      {/* Progress bar */}
-      {project.status === 'active' && project.progress !== undefined && (
-        <div className="mb-3">
-          <div className="w-full bg-claude-border rounded-full h-2">
-            <div
-              className="bg-claude-primary h-2 rounded-full transition-all duration-300"
-              style={{ width: `${project.progress}%` }}
-            />
-          </div>
-        </div>
-      )}
-      
-      {/* Last command */}
-      {project.lastCommand && (
-        <div className="mb-3">
-          <p className="text-sm text-gray-500">Last command:</p>
-          <p className="text-sm text-gray-300 font-mono truncate">&gt; {project.lastCommand}</p>
-        </div>
-      )}
-      
-      {/* Current status/output */}
-      {project.currentOutput && (
-        <div className="mb-3">
-          <p className="text-sm text-gray-500">Status:</p>
-          <p className="text-sm text-gray-300 truncate">{project.currentOutput}</p>
-        </div>
-      )}
-      
-      {/* Actions */}
-      <div className="flex gap-2 mt-4">
         <button
           onClick={(e) => {
-            e.stopPropagation()
-            handleOpenInCursor()
+            e.stopPropagation();
+            handleRemove();
           }}
-          className="flex-1 px-3 py-1 text-sm bg-claude-border text-gray-200 rounded hover:bg-gray-600 transition-colors"
-        >
-          Open in Cursor
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            setShowOutput(!showOutput)
-          }}
-          className="flex-1 px-3 py-1 text-sm bg-claude-border text-gray-200 rounded hover:bg-gray-600 transition-colors"
-        >
-          {showOutput ? 'Hide' : 'View'} Output
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            handleRemove()
-          }}
-          className="px-3 py-1 text-sm bg-claude-error text-white rounded hover:bg-red-600 transition-colors"
+          className="text-gray-500 hover:text-red-500"
         >
           ✕
         </button>
       </div>
       
-      {/* Output panel */}
-      {showOutput && (
-        <div className="mt-4 p-3 bg-claude-bg rounded border border-claude-border">
-          <div className="flex justify-between items-center mb-2">
-            <p className="text-sm text-gray-400">Output Log</p>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                // TODO: Implement clear output
-              }}
-              className="text-xs text-gray-500 hover:text-gray-300"
-            >
-              Clear
-            </button>
-          </div>
-          <pre className="text-xs text-gray-300 font-mono overflow-auto max-h-48">
-            {project.currentOutput || 'No output yet...'}
-          </pre>
+      <div className="text-sm text-gray-400 mb-2">{project.path}</div>
+      
+      {project.lastCommand && (
+        <div className="text-sm mb-2">
+          <span className="text-gray-500">Last command:</span> {project.lastCommand}
         </div>
       )}
+      
+      {project.status === 'active' && (
+        <div className="mb-2">
+          <div className="w-full bg-claude-border rounded-full h-2">
+            <div className="bg-claude-primary h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+          </div>
+        </div>
+      )}
+      
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOpenInCursor();
+          }}
+          className="px-3 py-1 text-sm bg-claude-border rounded hover:bg-gray-600"
+        >
+          Open in Cursor
+        </button>
+        
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowOutput(!showOutput);
+            if (!showOutput) {
+              setIsMinimized(false);
+            }
+          }}
+          className="px-3 py-1 text-sm bg-claude-border rounded hover:bg-gray-600"
+        >
+          {showOutput ? 'Hide' : 'View'} Terminal
+        </button>
+        
+        {project.status === 'idle' ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleStart();
+            }}
+            className="px-3 py-1 text-sm bg-claude-success text-white rounded hover:bg-green-600"
+          >
+            Start
+          </button>
+        ) : project.status === 'active' ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleStop();
+            }}
+            className="px-3 py-1 text-sm bg-claude-warning text-white rounded hover:bg-orange-600"
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleStart();
+            }}
+            className="px-3 py-1 text-sm bg-claude-error text-white rounded hover:bg-red-600"
+          >
+            Restart
+          </button>
+        )}
+      </div>
+      
+      {showOutput && (
+        <>
+          {/* Quick response buttons if we see a prompt */}
+          {project.output.some(line => line.includes('Yes, proceed')) && (
+            <div className="mt-3 mb-2 flex gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleQuickResponse('1');
+                }}
+                className="px-3 py-1 text-sm bg-claude-primary text-white rounded hover:bg-blue-600"
+              >
+                Send "1" (Yes)
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleQuickResponse('2');
+                }}
+                className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+              >
+                Send "2" (No)
+              </button>
+            </div>
+          )}
+          
+          {!isMinimized ? (
+            <ClaudeTerminal 
+              project={project} 
+              onClose={() => setShowOutput(false)}
+              onMinimize={() => setIsMinimized(true)}
+            />
+          ) : (
+            <div className="mt-3 border border-claude-border rounded-lg overflow-hidden">
+              <div className="bg-gray-900 px-4 py-2 flex items-center justify-between">
+                <span className="text-gray-400 text-sm">
+                  {project.name} - Terminal (Minimized)
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMinimized(false);
+                  }}
+                  className="text-gray-400 hover:text-white px-2"
+                  title="Restore"
+                >
+                  ⬜
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
-  )
-}
-
-export default ProjectCard
+  );
+};
