@@ -41,10 +41,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
       }
     };
     
-    window.electronAPI.onProcessProgress(handleProgress);
+    const removeProgressListener = window.electronAPI.onProcessProgress(handleProgress);
     
-    // Note: We can't remove the listener here because the API doesn't support it
-    // This is fine as the listener will just ignore updates for other projects
+    // Cleanup listener on unmount or when project.id changes
+    return () => {
+      if (removeProgressListener) removeProgressListener();
+    };
   }, [project.id]);
   
   // Check if terminal exists

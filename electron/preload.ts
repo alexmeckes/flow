@@ -27,22 +27,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Listen for process output
   onProcessOutput: (callback: (projectId: string, output: string) => void) => {
-    ipcRenderer.on('process:output', (_, data) => callback(data.projectId, data.output));
+    const handler = (_: any, data: any) => callback(data.projectId, data.output);
+    ipcRenderer.on('process:output', handler);
+    // Return cleanup function
+    return () => ipcRenderer.removeListener('process:output', handler);
   },
   
   // Listen for process status changes
   onProcessStatus: (callback: (projectId: string, status: string) => void) => {
-    ipcRenderer.on('process:status', (_, data) => callback(data.projectId, data.status));
+    const handler = (_: any, data: any) => callback(data.projectId, data.status);
+    ipcRenderer.on('process:status', handler);
+    // Return cleanup function
+    return () => ipcRenderer.removeListener('process:status', handler);
   },
   
   // Listen for output cleared
   onProcessOutputCleared: (callback: (projectId: string) => void) => {
-    ipcRenderer.on('process:output:cleared', (_, data) => callback(data.projectId));
+    const handler = (_: any, data: any) => callback(data.projectId);
+    ipcRenderer.on('process:output:cleared', handler);
+    // Return cleanup function
+    return () => ipcRenderer.removeListener('process:output:cleared', handler);
   },
   
   // Listen for progress updates
   onProcessProgress: (callback: (projectId: string, progressState: any) => void) => {
-    ipcRenderer.on('process:progress', (_, data) => callback(data.projectId, data.progressState));
+    const handler = (_: any, data: any) => callback(data.projectId, data.progressState);
+    ipcRenderer.on('process:progress', handler);
+    // Return cleanup function
+    return () => ipcRenderer.removeListener('process:progress', handler);
   },
   
   // Cursor integration

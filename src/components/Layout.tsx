@@ -16,24 +16,38 @@ export const Layout: React.FC = () => {
     updateProjectStatus 
   } = useProjectStore();
   
-  // Set up IPC listeners
+  // Set up IPC listeners - no dependencies to ensure they're only set up once
   useEffect(() => {
+    console.log('Setting up IPC listeners');
+    
+    // Get stable references to store methods
+    const store = useProjectStore.getState();
+    
     // Listen for process output
-    window.electronAPI.onProcessOutput((projectId, output) => {
-      updateProjectOutput(projectId, output);
+    const removeOutputListener = window.electronAPI.onProcessOutput((projectId, output) => {
+      console.log(`Received output for project ${projectId}: ${output.substring(0, 50)}...`);
+      store.updateProjectOutput(projectId, output);
     });
     
     // Listen for process status changes
-    window.electronAPI.onProcessStatus((projectId, status) => {
-      updateProjectStatus(projectId, status as any);
+    const removeStatusListener = window.electronAPI.onProcessStatus((projectId, status) => {
+      console.log(`Received status for project ${projectId}: ${status}`);
+      store.updateProjectStatus(projectId, status as any);
     });
     
     // Listen for output cleared events
-    window.electronAPI.onProcessOutputCleared((projectId) => {
-      // The store already handles this in clearProjectOutput
+    const removeClearedListener = window.electronAPI.onProcessOutputCleared((projectId) => {
       console.log(`Output cleared for project ${projectId}`);
     });
-  }, [updateProjectOutput, updateProjectStatus]);
+    
+    // Cleanup listeners on unmount
+    return () => {
+      console.log('Cleaning up IPC listeners');
+      if (removeOutputListener) removeOutputListener();
+      if (removeStatusListener) removeStatusListener();
+      if (removeClearedListener) removeClearedListener();
+    };
+  }, []); // Empty dependency array - only run once
   
   // Load saved state - separate effect to run only once
   useEffect(() => {

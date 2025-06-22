@@ -163,6 +163,7 @@ export class ProcessManager extends EventEmitter {
       project.claudeProcess.onData((data: string) => {
         // Emit raw data for terminal display
         project.output.push(data);
+        console.log(`[ProcessManager] Emitting output for ${projectId}: ${data.substring(0, 30).replace(/\n/g, '\\n')}...`);
         this.emit('output', { projectId, output: data });
         
         // Track output for rate calculation

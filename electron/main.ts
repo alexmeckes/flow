@@ -100,6 +100,7 @@ ipcMain.handle('process:clearOutput', async (_, projectId) => {
 
 // Forward process events to renderer
 processManager.on('output', (data) => {
+  console.log(`[Main] Forwarding output for ${data.projectId}: ${data.output.substring(0, 30).replace(/\n/g, '\\n')}...`);
   mainWindow?.webContents.send('process:output', data);
 });
 
