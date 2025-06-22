@@ -16,7 +16,7 @@ export const Layout: React.FC = () => {
     updateProjectStatus 
   } = useProjectStore();
   
-  // Set up IPC listeners and load state
+  // Set up IPC listeners
   useEffect(() => {
     // Listen for process output
     window.electronAPI.onProcessOutput((projectId, output) => {
@@ -33,12 +33,15 @@ export const Layout: React.FC = () => {
       // The store already handles this in clearProjectOutput
       console.log(`Output cleared for project ${projectId}`);
     });
-    
-    // Load saved state
+  }, [updateProjectOutput, updateProjectStatus]);
+  
+  // Load saved state - separate effect to run only once
+  useEffect(() => {
     const loadState = async () => {
       try {
         const savedState = await window.electronAPI.loadState();
         if (savedState && savedState.projects) {
+          console.log(`Loading ${savedState.projects.length} saved projects`);
           savedState.projects.forEach((project: any) => {
             addProject({
               ...project,
@@ -55,7 +58,7 @@ export const Layout: React.FC = () => {
     };
     
     loadState();
-  }, [updateProjectOutput, updateProjectStatus, addProject]);
+  }, []); // Only run once on mount
   
   // Keyboard shortcuts
   useEffect(() => {

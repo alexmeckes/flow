@@ -28,9 +28,17 @@ export const useProjectStore = create<ProjectStore>((set) => ({
   
   setProjects: (projects) => set({ projects }),
   
-  addProject: (project) => set((state) => ({
-    projects: [...state.projects, project]
-  })),
+  addProject: (project) => set((state) => {
+    // Check if project with same path already exists
+    const exists = state.projects.some(p => p.path === project.path);
+    if (exists) {
+      console.warn(`Project already exists at path: ${project.path}`);
+      return state;
+    }
+    return {
+      projects: [...state.projects, project]
+    };
+  }),
   
   removeProject: (projectId) => set((state) => ({
     projects: state.projects.filter(p => p.id !== projectId),

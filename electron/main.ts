@@ -180,20 +180,8 @@ ipcMain.handle('dialog:selectDirectory', async () => {
   return result.filePaths[0];
 });
 
-// Load state on app ready
-app.on('ready', async () => {
-  const savedState = await stateManager.load();
-  if (savedState) {
-    // Restore projects (but not processes)
-    for (const savedProject of savedState.projects) {
-      try {
-        processManager.createProject(savedProject.name, savedProject.path);
-      } catch (error) {
-        console.error(`Failed to restore project ${savedProject.name}:`, error);
-      }
-    }
-  }
-});
+// Note: State loading is handled by the frontend in Layout.tsx
+// This prevents duplicate projects from being created
 
 // Save state periodically
 setInterval(async () => {
