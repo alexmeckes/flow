@@ -43,7 +43,7 @@ export const Layout: React.FC = () => {
             addProject({
               ...project,
               status: 'idle',
-              output: [],
+              output: project.output || [],  // Preserve saved output if it exists
               createdAt: new Date(project.createdAt),
               updatedAt: new Date(project.updatedAt)
             });

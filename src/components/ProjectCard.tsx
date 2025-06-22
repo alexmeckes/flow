@@ -244,13 +244,14 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
             </div>
           )}
           
-          {!isMinimized ? (
+          <div style={{ display: isMinimized ? 'none' : 'block' }}>
             <ClaudeTerminal 
               project={project} 
               onClose={() => setShowOutput(false)}
               onMinimize={() => setIsMinimized(true)}
             />
-          ) : (
+          </div>
+          {isMinimized && (
             <div className="mt-3 border border-claude-border rounded-lg overflow-hidden">
               <div className="bg-gray-900 px-4 py-2 flex items-center justify-between">
                 <span className="text-gray-400 text-sm">

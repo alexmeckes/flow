@@ -4,7 +4,13 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Project } from '../types';
 
 // Global terminal instances to persist across component unmounts
-const terminalInstances = new Map<string, { terminal: Terminal; fitAddon: FitAddon }>();
+interface TerminalInstance {
+  terminal: Terminal;
+  fitAddon: FitAddon;
+  buffer: string[]; // Store all outputs as backup
+}
+
+const terminalInstances = new Map<string, TerminalInstance>();
 
 // Expose for cleanup
 if (typeof window !== 'undefined') {
@@ -47,7 +53,7 @@ export const useTerminal = (project: Project, fontSize: number) => {
         window.electronAPI.sendCommand(project.id, data);
       });
       
-      instance = { terminal: term, fitAddon: fit };
+      instance = { terminal: term, fitAddon: fit, buffer: [...project.output] };
       terminalInstances.set(project.id, instance);
       
       // Write all existing output to the new terminal
@@ -56,16 +62,32 @@ export const useTerminal = (project: Project, fontSize: number) => {
         for (const output of project.output) {
           term.write(output);
         }
+        lastWrittenIndexRef.current = project.output.length - 1;
       }
     } else {
       // Reusing existing terminal
       console.log(`Reusing existing terminal for project ${project.id}`);
       // Update font size if it changed
       instance.terminal.options.fontSize = fontSize;
+      
+      // Check if terminal buffer is out of sync with project output
+      if (instance.buffer.length !== project.output.length) {
+        console.log(`Terminal buffer out of sync. Buffer: ${instance.buffer.length}, Output: ${project.output.length}`);
+        // Clear and rewrite everything
+        instance.terminal.clear();
+        for (const output of project.output) {
+          instance.terminal.write(output);
+        }
+        instance.buffer = [...project.output];
+        lastWrittenIndexRef.current = project.output.length - 1;
+      }
     }
     
-    // Attach to DOM
-    instance.terminal.open(terminalRef.current);
+    // Only attach to DOM if not already attached
+    if (!instance.terminal.element || instance.terminal.element.parentElement !== terminalRef.current) {
+      console.log(`Attaching terminal to DOM for project ${project.id}`);
+      instance.terminal.open(terminalRef.current);
+    }
     
     // Force a fit after a small delay to ensure proper sizing
     setTimeout(() => {
@@ -83,23 +105,30 @@ export const useTerminal = (project: Project, fontSize: number) => {
     
     return () => {
       window.removeEventListener('resize', handleResize);
-      // Don't dispose - just detach from DOM
-      if (terminalRef.current && terminalRef.current.querySelector('.xterm')) {
-        terminalRef.current.innerHTML = '';
-      }
+      // Don't dispose or clear - the terminal will be reused
+      // The terminal.open() method handles DOM cleanup when attaching to a new element
     };
   }, [project.id, fontSize]);
+  
+  // Track last written output index to avoid duplicates
+  const lastWrittenIndexRef = useRef<number>(-1);
   
   // Update terminal when project output changes
   useEffect(() => {
     const instance = terminalInstances.get(project.id);
     if (!instance || !project.output.length) return;
     
-    // Get the last output entry
-    const lastOutput = project.output[project.output.length - 1];
-    
-    // Write raw output to terminal
-    instance.terminal.write(lastOutput);
+    // Only write new outputs that haven't been written yet
+    const startIndex = lastWrittenIndexRef.current + 1;
+    if (startIndex < project.output.length) {
+      console.log(`Writing outputs ${startIndex} to ${project.output.length - 1} for project ${project.id}`);
+      for (let i = startIndex; i < project.output.length; i++) {
+        instance.terminal.write(project.output[i]);
+      }
+      lastWrittenIndexRef.current = project.output.length - 1;
+      // Update buffer
+      instance.buffer = [...project.output];
+    }
     
     // Ensure we're scrolled to the bottom to see new output
     instance.terminal.scrollToBottom();
@@ -109,7 +138,10 @@ export const useTerminal = (project: Project, fontSize: number) => {
   useEffect(() => {
     const instance = terminalInstances.get(project.id);
     if (instance && project.output.length === 0) {
+      console.log(`Clearing terminal for project ${project.id}`);
       instance.terminal.clear();
+      instance.buffer = []; // Clear buffer
+      lastWrittenIndexRef.current = -1; // Reset tracking
     }
   }, [project.id, project.output.length]);
   
