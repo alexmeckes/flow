@@ -40,6 +40,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('process:output:cleared', (_, data) => callback(data.projectId));
   },
   
+  // Listen for progress updates
+  onProcessProgress: (callback: (projectId: string, progressState: any) => void) => {
+    ipcRenderer.on('process:progress', (_, data) => callback(data.projectId, data.progressState));
+  },
+  
   // Cursor integration
   openInCursor: (projectPath: string) => 
     ipcRenderer.invoke('cursor:open', projectPath),

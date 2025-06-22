@@ -3,7 +3,16 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as pty from 'node-pty';
-// Removed complex parsers - let's keep it simple
+import { OutputAnalyzer } from './OutputAnalyzer';
+
+export interface ProgressState {
+  isActive: boolean;
+  status: string;
+  startTime: Date | null;
+  lastOutputTime: Date | null;
+  outputRate: number;
+  phase: 'idle' | 'thinking' | 'working' | 'waiting' | 'complete';
+}
 
 export interface Project {
   id: string;
@@ -17,10 +26,53 @@ export interface Project {
   updatedAt: Date;
   cursorWindowId?: number;
   cursorPid?: number;
+  progressState?: ProgressState;
 }
 
 export class ProcessManager extends EventEmitter {
   private projects: Map<string, Project> = new Map();
+  private outputAnalyzer = new OutputAnalyzer();
+  private recentOutputs = new Map<string, Array<{ text: string; timestamp: Date }>>();
+  private progressCheckInterval: NodeJS.Timeout | null = null;
+  
+  constructor() {
+    super();
+    this.startProgressMonitoring();
+  }
+
+  private startProgressMonitoring(): void {
+    // Check progress state every second
+    this.progressCheckInterval = setInterval(() => {
+      for (const [projectId, project] of this.projects) {
+        if (project.progressState && project.progressState.isActive) {
+          const now = new Date();
+          const timeSinceLastOutput = project.progressState.lastOutputTime 
+            ? now.getTime() - project.progressState.lastOutputTime.getTime()
+            : 0;
+
+          // Check if Claude is still active based on output patterns
+          const recentOutputs = this.recentOutputs.get(projectId) || [];
+          const lastOutput = recentOutputs.length > 0 
+            ? recentOutputs[recentOutputs.length - 1].text 
+            : '';
+
+          const stillActive = this.outputAnalyzer.isStillActive(lastOutput, timeSinceLastOutput);
+
+          if (!stillActive) {
+            // Mark as complete if it was active
+            project.progressState.isActive = false;
+            project.progressState.phase = 'complete';
+            project.progressState.status = 'Ready';
+            
+            this.emit('progress', { 
+              projectId, 
+              progressState: project.progressState 
+            });
+          }
+        }
+      }
+    }, 1000);
+  }
   
   createProject(name: string, projectPath: string): Project {
     // Validate project path exists
@@ -94,19 +146,53 @@ export class ProcessManager extends EventEmitter {
       project.status = 'active';
       project.updatedAt = new Date();
       
-      // Simple deduplication state
-      let lastLine = '';
-      let lastEmittedLine = '';
+      // Initialize progress state
+      project.progressState = {
+        isActive: true,
+        status: 'Starting Claude...',
+        startTime: new Date(),
+        lastOutputTime: new Date(),
+        outputRate: 0,
+        phase: 'thinking'
+      };
+      
+      // Initialize recent outputs tracking
+      this.recentOutputs.set(projectId, []);
       
       // Handle output from Claude
       project.claudeProcess.onData((data: string) => {
-        // Just emit the raw data - let the frontend handle display
-        // This preserves Claude's TUI behavior
+        // Emit raw data for terminal display
         project.output.push(data);
         this.emit('output', { projectId, output: data });
         
-        // Log for debugging
-        console.log(`[${project.name}] Raw output:`, JSON.stringify(data.substring(0, 100)));
+        // Track output for rate calculation
+        const outputs = this.recentOutputs.get(projectId) || [];
+        outputs.push({ text: data, timestamp: new Date() });
+        // Keep only last 20 outputs
+        if (outputs.length > 20) outputs.shift();
+        this.recentOutputs.set(projectId, outputs);
+        
+        // Analyze output for progress
+        const cleanData = data.replace(/\x1b\[[0-9;]*m/g, '').trim();
+        if (cleanData) {
+          const analysis = this.outputAnalyzer.analyzeOutput(cleanData);
+          const outputRate = this.outputAnalyzer.calculateOutputRate(outputs);
+          
+          // Update progress state
+          if (project.progressState) {
+            project.progressState.phase = analysis.phase as any;
+            project.progressState.status = analysis.status;
+            project.progressState.lastOutputTime = new Date();
+            project.progressState.outputRate = outputRate;
+            project.progressState.isActive = true;
+            
+            // Emit progress update
+            this.emit('progress', { 
+              projectId, 
+              progressState: project.progressState 
+            });
+          }
+        }
         
         // Keep only last 1000 entries
         if (project.output.length > 1000) {
@@ -120,6 +206,18 @@ export class ProcessManager extends EventEmitter {
         project.status = exitCode === 0 ? 'idle' : 'error';
         project.claudeProcess = undefined;
         project.updatedAt = new Date();
+        
+        // Clear progress state
+        if (project.progressState) {
+          project.progressState.isActive = false;
+          project.progressState.phase = 'idle';
+          project.progressState.status = '';
+          this.emit('progress', { 
+            projectId, 
+            progressState: project.progressState 
+          });
+        }
+        
         this.emit('status', { projectId, status: project.status });
       });
       
@@ -169,9 +267,26 @@ export class ProcessManager extends EventEmitter {
     // Just pass them through directly to the PTY
     project.claudeProcess.write(command);
     
-    // Log non-printable characters for debugging
+    // Reset progress state when Enter is pressed (new command)
     if (command === '\r' || command === '\n') {
       console.log(`[${project.name}] Sent: <ENTER>`);
+      
+      // Reset progress for new command
+      if (project.progressState) {
+        project.progressState = {
+          isActive: true,
+          status: 'Processing command...',
+          startTime: new Date(),
+          lastOutputTime: new Date(),
+          outputRate: 0,
+          phase: 'thinking'
+        };
+        
+        this.emit('progress', { 
+          projectId, 
+          progressState: project.progressState 
+        });
+      }
     } else if (command === '\x7f' || command === '\b') {
       console.log(`[${project.name}] Sent: <BACKSPACE>`);
     } else if (command === '\x03') {
@@ -208,6 +323,12 @@ export class ProcessManager extends EventEmitter {
   
   // Clean up all processes on shutdown
   cleanup(): void {
+    // Stop progress monitoring
+    if (this.progressCheckInterval) {
+      clearInterval(this.progressCheckInterval);
+      this.progressCheckInterval = null;
+    }
+    
     for (const project of this.projects.values()) {
       if (project.claudeProcess) {
         this.stopClaudeCode(project.id);

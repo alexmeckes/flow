@@ -19,6 +19,9 @@ export interface IElectronAPI {
   // Listen for output cleared
   onProcessOutputCleared: (callback: (projectId: string) => void) => void;
   
+  // Listen for progress updates
+  onProcessProgress: (callback: (projectId: string, progressState: any) => void) => void;
+  
   // Cursor integration
   openInCursor: (projectPath: string) => Promise<void>;
   checkCursorOpen: (projectPath: string) => Promise<boolean>;

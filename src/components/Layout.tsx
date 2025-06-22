@@ -134,12 +134,42 @@ export const Layout: React.FC = () => {
           {projects.length > 0 && (
             <button
               onClick={async () => {
-                const success = await window.electronAPI.arrangeCursorWindows();
-                if (success) {
-                  console.log('Windows arranged successfully');
+                console.log('Arrange Windows button clicked');
+                try {
+                  const button = event.currentTarget as HTMLButtonElement;
+                  button.disabled = true;
+                  button.textContent = '⊞ Arranging...';
+                  
+                  const success = await window.electronAPI.arrangeCursorWindows();
+                  console.log('arrangeCursorWindows result:', success);
+                  
+                  if (success) {
+                    button.textContent = '✓ Arranged!';
+                    console.log('Windows arranged successfully');
+                    setTimeout(() => {
+                      button.textContent = '⊞ Arrange Windows';
+                      button.disabled = false;
+                    }, 2000);
+                  } else {
+                    button.textContent = '⚠️ Permission Required';
+                    console.log('Failed to arrange windows - may need accessibility permissions');
+                    alert('To arrange windows, please grant accessibility permissions:\n\n1. Open System Settings\n2. Go to Privacy & Security > Accessibility\n3. Add and enable this app');
+                    setTimeout(() => {
+                      button.textContent = '⊞ Arrange Windows';
+                      button.disabled = false;
+                    }, 3000);
+                  }
+                } catch (error) {
+                  console.error('Error arranging windows:', error);
+                  const button = event.currentTarget as HTMLButtonElement;
+                  button.textContent = '❌ Error';
+                  setTimeout(() => {
+                    button.textContent = '⊞ Arrange Windows';
+                    button.disabled = false;
+                  }, 2000);
                 }
               }}
-              className="px-4 py-2 bg-claude-border text-white rounded hover:bg-gray-600"
+              className="px-4 py-2 bg-claude-border text-white rounded hover:bg-gray-600 disabled:opacity-50"
               title="Arrange all Cursor windows in a grid"
             >
               ⊞ Arrange Windows

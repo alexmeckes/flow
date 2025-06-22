@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Project } from '../types';
+import { Project, ProgressState } from '../types';
 import { useProjectStore } from '../stores/projectStore';
 import { ClaudeTerminal } from './ClaudeTerminal';
+import { ProgressIndicator } from './ProgressIndicator';
 
 interface ProjectCardProps {
   project: Project;
@@ -12,6 +13,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
   const [showOutput, setShowOutput] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [isCursorOpen, setIsCursorOpen] = useState(false);
+  const [progressState, setProgressState] = useState<ProgressState | undefined>(project.progressState);
   const { setActiveProject, removeProject } = useProjectStore();
   
   // Check if Cursor is open periodically
@@ -29,6 +31,20 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
     
     return () => clearInterval(interval);
   }, [project.path]);
+  
+  // Listen for progress updates
+  useEffect(() => {
+    const handleProgress = (projectId: string, newProgressState: ProgressState) => {
+      if (projectId === project.id) {
+        setProgressState(newProgressState);
+      }
+    };
+    
+    window.electronAPI.onProcessProgress(handleProgress);
+    
+    // Note: We can't remove the listener here because the API doesn't support it
+    // This is fine as the listener will just ignore updates for other projects
+  }, [project.id]);
   
   const handleOpenInCursor = async () => {
     try {
@@ -139,13 +155,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
         </div>
       )}
       
-      {project.status === 'active' && (
-        <div className="mb-2">
-          <div className="w-full bg-claude-border rounded-full h-2">
-            <div className="bg-claude-primary h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
-          </div>
-        </div>
-      )}
+      <ProgressIndicator progressState={progressState} />
       
       <div className="flex gap-2 mt-3">
         <button

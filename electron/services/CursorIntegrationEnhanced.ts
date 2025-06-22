@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
+import { CursorArrangerMacOS } from './CursorArrangerMacOS';
 
 const execAsync = promisify(exec);
 
@@ -10,10 +11,13 @@ let windowManager: any = null;
 async function getWindowManager() {
   if (!windowManager) {
     try {
+      console.log('getWindowManager: Loading node-window-manager...');
       const wm = await import('node-window-manager');
       windowManager = wm.windowManager;
+      console.log('getWindowManager: Successfully loaded window manager');
+      console.log('getWindowManager: Available methods:', Object.keys(windowManager));
     } catch (error) {
-      console.warn('Window manager not available:', error);
+      console.error('getWindowManager: Failed to load window manager:', error);
     }
   }
   return windowManager;
@@ -22,6 +26,7 @@ async function getWindowManager() {
 export class CursorIntegrationEnhanced {
   private windowCheckInterval: NodeJS.Timeout | null = null;
   private projectWindowMap = new Map<string, number>();
+  private macOSArranger = new CursorArrangerMacOS();
 
   async openInCursor(projectPath: string): Promise<{ windowId?: number; pid?: number }> {
     try {
@@ -151,66 +156,157 @@ export class CursorIntegrationEnhanced {
 
   async getAllCursorWindows(): Promise<any[]> {
     const wm = await getWindowManager();
-    if (!wm) return [];
+    if (!wm) {
+      console.log('getAllCursorWindows: Window manager not available');
+      return [];
+    }
     
     try {
       const windows = wm.getWindows();
-      return windows.filter((window: any) => {
+      console.log(`getAllCursorWindows: Total windows found: ${windows.length}`);
+      
+      const cursorWindows = windows.filter((window: any) => {
         try {
           // Get window title
           const title = window.getTitle() || '';
+          const isVisible = window.isVisible();
+          
+          console.log(`getAllCursorWindows: Window "${title}" visible: ${isVisible}`);
           
           // Skip if window is not visible
-          if (!window.isVisible()) return false;
+          if (!isVisible) return false;
           
-          return title.toLowerCase().includes('cursor');
+          // Check multiple patterns for Cursor windows
+          const titleLower = title.toLowerCase();
+          const isCursor = titleLower.includes('cursor') || 
+                          titleLower === 'cursor' ||
+                          title === 'Cursor';
+          
+          if (isCursor) {
+            console.log(`getAllCursorWindows: Found Cursor window: "${title}"`);
+          }
+          
+          return isCursor;
         } catch (e) {
+          console.error('getAllCursorWindows: Error checking window:', e);
           return false;
         }
       });
+      
+      console.log(`getAllCursorWindows: Found ${cursorWindows.length} Cursor windows`);
+      return cursorWindows;
     } catch (error) {
-      console.error('Error getting Cursor windows:', error);
+      console.error('getAllCursorWindows: Error:', error);
       return [];
     }
   }
 
   async arrangeWindows(): Promise<void> {
+    console.log('arrangeWindows: Starting...');
+    
+    // Try macOS-specific approach first
+    if (process.platform === 'darwin') {
+      console.log('arrangeWindows: Trying macOS AppleScript approach...');
+      const success = await this.macOSArranger.arrangeWindows();
+      if (success) {
+        console.log('arrangeWindows: Successfully arranged windows using AppleScript');
+        return;
+      }
+      console.log('arrangeWindows: AppleScript failed, falling back to node-window-manager');
+    }
+    
     const windows = await this.getAllCursorWindows();
-    if (windows.length === 0) return;
+    console.log(`arrangeWindows: Found ${windows.length} Cursor windows`);
+    
+    if (windows.length === 0) {
+      console.log('arrangeWindows: No windows found, exiting');
+      return;
+    }
     
     const wm = await getWindowManager();
-    if (!wm) return;
+    if (!wm) {
+      console.log('arrangeWindows: Window manager not available');
+      return;
+    }
     
     // Get primary monitor dimensions
-    const monitors = wm.getMonitors();
-    const primaryMonitor = monitors[0];
-    if (!primaryMonitor) return;
+    let width = 1920;  // Default fallback
+    let height = 1080; // Default fallback
     
-    const { width, height } = primaryMonitor.getBounds();
+    try {
+      const monitors = wm.getMonitors();
+      console.log(`arrangeWindows: Found ${monitors.length} monitors`);
+      
+      if (monitors.length > 0) {
+        const primaryMonitor = monitors[0];
+        const bounds = primaryMonitor.getBounds();
+        console.log('arrangeWindows: Primary monitor bounds:', bounds);
+        width = bounds.width;
+        height = bounds.height;
+      } else {
+        console.log('arrangeWindows: No monitors found, using screen dimensions fallback');
+        // Try to get screen dimensions from the first window's screen position
+        if (windows.length > 0) {
+          const firstWindowBounds = windows[0].getBounds();
+          // Estimate screen size based on window positions
+          windows.forEach(w => {
+            const bounds = w.getBounds();
+            width = Math.max(width, bounds.x + bounds.width + 100);
+            height = Math.max(height, bounds.y + bounds.height + 100);
+          });
+          console.log(`arrangeWindows: Estimated screen size: ${width}x${height}`);
+        }
+      }
+    } catch (error) {
+      console.log('arrangeWindows: Error getting monitor info, using defaults:', error);
+    }
     
     // Calculate grid layout
     const cols = Math.ceil(Math.sqrt(windows.length));
     const rows = Math.ceil(windows.length / cols);
+    console.log(`arrangeWindows: Grid layout: ${cols}x${rows}`);
     
     const windowWidth = Math.floor(width / cols);
     const windowHeight = Math.floor(height / rows);
+    console.log(`arrangeWindows: Window size: ${windowWidth}x${windowHeight}`);
     
     // Arrange windows in grid
     windows.forEach((window, index) => {
       const col = index % cols;
       const row = Math.floor(index / cols);
+      const x = col * windowWidth;
+      const y = row * windowHeight;
       
       try {
+        console.log(`arrangeWindows: Positioning window ${index} at (${x}, ${y}) with size ${windowWidth}x${windowHeight}`);
+        console.log(`arrangeWindows: Window title: "${window.getTitle()}"`);
+        
+        // First check current bounds
+        const currentBounds = window.getBounds();
+        console.log(`arrangeWindows: Current bounds:`, currentBounds);
+        
         window.setBounds({
-          x: col * windowWidth,
-          y: row * windowHeight,
+          x: x,
+          y: y,
           width: windowWidth,
           height: windowHeight
         });
+        
+        // Check if bounds actually changed
+        const newBounds = window.getBounds();
+        console.log(`arrangeWindows: New bounds:`, newBounds);
+        
+        if (currentBounds.x === newBounds.x && currentBounds.y === newBounds.y) {
+          console.log(`arrangeWindows: WARNING - Window ${index} did not move! Possible permission issue.`);
+        } else {
+          console.log(`arrangeWindows: Successfully positioned window ${index}`);
+        }
       } catch (error) {
-        console.error('Error arranging window:', error);
+        console.error(`arrangeWindows: Error arranging window ${index}:`, error);
       }
     });
+    
+    console.log('arrangeWindows: Completed');
   }
 
   async checkCursorInstalled(): Promise<boolean> {

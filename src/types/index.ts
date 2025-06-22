@@ -1,3 +1,12 @@
+export interface ProgressState {
+  isActive: boolean;
+  status: string;
+  startTime: Date | null;
+  lastOutputTime: Date | null;
+  outputRate: number; // chars per second
+  phase: 'idle' | 'thinking' | 'working' | 'waiting' | 'complete';
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -9,6 +18,7 @@ export interface Project {
   updatedAt: Date;
   cursorWindowId?: number;
   cursorPid?: number;
+  progressState?: ProgressState;
 }
 
 export interface Command {

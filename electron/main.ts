@@ -111,6 +111,10 @@ processManager.on('output:cleared', (data) => {
   mainWindow?.webContents.send('process:output:cleared', data);
 });
 
+processManager.on('progress', (data) => {
+  mainWindow?.webContents.send('process:progress', data);
+});
+
 // Cursor integration handlers
 ipcMain.handle('cursor:open', async (_, projectPath) => {
   try {
