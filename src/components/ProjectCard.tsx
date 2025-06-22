@@ -14,6 +14,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
   const [isMinimized, setIsMinimized] = useState(false);
   const [isCursorOpen, setIsCursorOpen] = useState(false);
   const [progressState, setProgressState] = useState<ProgressState | undefined>(project.progressState);
+  const [hasTerminal, setHasTerminal] = useState(false);
   const { setActiveProject, removeProject } = useProjectStore();
   
   // Check if Cursor is open periodically
@@ -45,6 +46,22 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
     // Note: We can't remove the listener here because the API doesn't support it
     // This is fine as the listener will just ignore updates for other projects
   }, [project.id]);
+  
+  // Check if terminal exists
+  useEffect(() => {
+    // Check if terminal already exists for this project
+    const terminalInstances = (window as any).__terminalInstances;
+    if (terminalInstances && terminalInstances.has(project.id)) {
+      setHasTerminal(true);
+    }
+  }, [project.id]);
+  
+  // Set hasTerminal when output is shown
+  useEffect(() => {
+    if (showOutput && !hasTerminal) {
+      setHasTerminal(true);
+    }
+  }, [showOutput, hasTerminal]);
   
   const handleOpenInCursor = async () => {
     try {
@@ -218,59 +235,60 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
         )}
       </div>
       
-      {showOutput && (
-        <>
-          {/* Quick response buttons if we see a prompt */}
-          {project.output.some(line => line.includes('Yes, proceed')) && (
-            <div className="mt-3 mb-2 flex gap-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleQuickResponse('1');
-                }}
-                className="px-3 py-1 text-sm bg-claude-primary text-white rounded hover:bg-blue-600"
-              >
-                Send "1" (Yes)
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleQuickResponse('2');
-                }}
-                className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
-              >
-                Send "2" (No)
-              </button>
-            </div>
-          )}
-          
-          <div style={{ display: isMinimized ? 'none' : 'block' }}>
-            <ClaudeTerminal 
-              project={project} 
-              onClose={() => setShowOutput(false)}
-              onMinimize={() => setIsMinimized(true)}
-            />
+      {/* Quick response buttons if we see a prompt - only show when terminal is visible */}
+      {showOutput && project.output.some(line => line.includes('Yes, proceed')) && (
+        <div className="mt-3 mb-2 flex gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleQuickResponse('1');
+            }}
+            className="px-3 py-1 text-sm bg-claude-primary text-white rounded hover:bg-blue-600"
+          >
+            Send "1" (Yes)
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleQuickResponse('2');
+            }}
+            className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+          >
+            Send "2" (No)
+          </button>
+        </div>
+      )}
+      
+      {/* Terminal container - always rendered once opened, just hidden when not showing */}
+      {hasTerminal && (
+        <div style={{ display: showOutput && !isMinimized ? 'block' : 'none' }}>
+          <ClaudeTerminal 
+            project={project} 
+            onClose={() => setShowOutput(false)}
+            onMinimize={() => setIsMinimized(true)}
+          />
+        </div>
+      )}
+      
+      {/* Show minimized bar when terminal is minimized */}
+      {showOutput && isMinimized && (
+        <div className="mt-3 border border-claude-border rounded-lg overflow-hidden">
+          <div className="bg-gray-900 px-4 py-2 flex items-center justify-between">
+            <span className="text-gray-400 text-sm">
+              {project.name} - Terminal (Minimized)
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMinimized(false);
+              }}
+              className="text-gray-400 hover:text-white px-2"
+              title="Restore"
+            >
+              ⬜
+            </button>
           </div>
-          {isMinimized && (
-            <div className="mt-3 border border-claude-border rounded-lg overflow-hidden">
-              <div className="bg-gray-900 px-4 py-2 flex items-center justify-between">
-                <span className="text-gray-400 text-sm">
-                  {project.name} - Terminal (Minimized)
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsMinimized(false);
-                  }}
-                  className="text-gray-400 hover:text-white px-2"
-                  title="Restore"
-                >
-                  ⬜
-                </button>
-              </div>
-            </div>
-          )}
-        </>
+        </div>
       )}
     </div>
   );
