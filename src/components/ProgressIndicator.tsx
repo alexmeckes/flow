@@ -66,12 +66,7 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ progressSt
           <span className={`text-lg ${getProgressAnimation()}`}>{getPhaseIcon()}</span>
           <span className="text-sm font-medium">{progressState.status}</span>
         </div>
-        <div className="flex items-center gap-3 text-xs text-gray-400">
-          {progressState.outputRate > 0 && (
-            <span>{progressState.outputRate} chars/s</span>
-          )}
-          <span>{formattedTime}</span>
-        </div>
+        <span className="text-xs text-gray-400">{formattedTime}</span>
       </div>
     </div>
   );
