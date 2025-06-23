@@ -1,13 +1,23 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { Project } from './ProcessManagerPTY';
+import { Project, ClaudeSession } from './ProcessManagerPTY';
+
+interface SavedSession {
+  id: string;
+  projectId: string;
+  name: string;
+  description?: string;
+  output: string[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface SavedProject {
   id: string;
   name: string;
   path: string;
-  lastCommand?: string;
+  sessions: SavedSession[];
   createdAt: string;
   updatedAt: string;
 }
@@ -41,7 +51,15 @@ export class StateManager {
           id: p.id,
           name: p.name,
           path: p.path,
-          lastCommand: p.lastCommand,
+          sessions: p.sessions.map(s => ({
+            id: s.id,
+            projectId: s.projectId,
+            name: s.name,
+            description: s.description,
+            output: s.output,
+            createdAt: s.createdAt.toISOString(),
+            updatedAt: s.updatedAt.toISOString()
+          })),
           createdAt: p.createdAt.toISOString(),
           updatedAt: p.updatedAt.toISOString()
         })),

@@ -12,8 +12,11 @@ export const Layout: React.FC = () => {
     projects, 
     setActiveProject, 
     addProject,
-    updateProjectOutput,
-    updateProjectStatus 
+    addSession,
+    removeSession,
+    updateSessionOutput,
+    updateSessionStatus,
+    updateCursorStatus
   } = useProjectStore();
   
   // Set up IPC listeners - no dependencies to ensure they're only set up once
@@ -23,21 +26,33 @@ export const Layout: React.FC = () => {
     // Get stable references to store methods
     const store = useProjectStore.getState();
     
-    // Listen for process output
-    const removeOutputListener = window.electronAPI.onProcessOutput((projectId, output) => {
-      console.log(`Received output for project ${projectId}: ${output.substring(0, 50)}...`);
-      store.updateProjectOutput(projectId, output);
+    // Listen for session output
+    const removeOutputListener = window.electronAPI.onSessionOutput((sessionId, projectId, output) => {
+      console.log(`Received output for session ${sessionId}: ${output.substring(0, 50)}...`);
+      store.updateSessionOutput(projectId, sessionId, output);
     });
     
-    // Listen for process status changes
-    const removeStatusListener = window.electronAPI.onProcessStatus((projectId, status) => {
-      console.log(`Received status for project ${projectId}: ${status}`);
-      store.updateProjectStatus(projectId, status as any);
+    // Listen for session status changes
+    const removeStatusListener = window.electronAPI.onSessionStatus((sessionId, projectId, status) => {
+      console.log(`Received status for session ${sessionId}: ${status}`);
+      store.updateSessionStatus(projectId, sessionId, status as any);
     });
     
     // Listen for output cleared events
-    const removeClearedListener = window.electronAPI.onProcessOutputCleared((projectId) => {
-      console.log(`Output cleared for project ${projectId}`);
+    const removeClearedListener = window.electronAPI.onSessionOutputCleared((sessionId, projectId) => {
+      console.log(`Output cleared for session ${sessionId}`);
+    });
+    
+    // Listen for session created events
+    const removeCreatedListener = window.electronAPI.onSessionCreated((projectId, session) => {
+      console.log(`Session created for project ${projectId}:`, session);
+      store.addSession(projectId, session);
+    });
+    
+    // Listen for session removed events
+    const removeRemovedListener = window.electronAPI.onSessionRemoved((projectId, sessionId) => {
+      console.log(`Session ${sessionId} removed from project ${projectId}`);
+      store.removeSession(projectId, sessionId);
     });
     
     // Cleanup listeners on unmount
@@ -46,6 +61,8 @@ export const Layout: React.FC = () => {
       if (removeOutputListener) removeOutputListener();
       if (removeStatusListener) removeStatusListener();
       if (removeClearedListener) removeClearedListener();
+      if (removeCreatedListener) removeCreatedListener();
+      if (removeRemovedListener) removeRemovedListener();
     };
   }, []); // Empty dependency array - only run once
   
@@ -59,8 +76,13 @@ export const Layout: React.FC = () => {
           savedState.projects.forEach((project: any) => {
             addProject({
               ...project,
-              status: 'idle',
-              output: project.output || [],  // Preserve saved output if it exists
+              sessions: project.sessions?.map((session: any) => ({
+                ...session,
+                status: 'idle',
+                output: session.output || [],
+                createdAt: new Date(session.createdAt),
+                updatedAt: new Date(session.updatedAt)
+              })) || [],
               createdAt: new Date(project.createdAt),
               updatedAt: new Date(project.updatedAt)
             });
@@ -73,6 +95,33 @@ export const Layout: React.FC = () => {
     
     loadState();
   }, []); // Only run once on mount
+  
+  // Centralized Cursor status checking - single interval for all projects
+  useEffect(() => {
+    const checkAllCursorStatuses = async () => {
+      // Get unique project paths
+      const uniquePaths = new Set(projects.map(p => p.path));
+      
+      // Check each path
+      for (const path of uniquePaths) {
+        try {
+          const isOpen = await window.electronAPI.checkCursorOpen(path);
+          updateCursorStatus(path, isOpen);
+        } catch (error) {
+          console.error(`Error checking cursor status for ${path}:`, error);
+          updateCursorStatus(path, false);
+        }
+      }
+    };
+    
+    // Check immediately
+    checkAllCursorStatuses();
+    
+    // Check every 3 seconds
+    const interval = setInterval(checkAllCursorStatuses, 3000);
+    
+    return () => clearInterval(interval);
+  }, [projects, updateCursorStatus]); // Re-run when projects change
   
   // Keyboard shortcuts
   useEffect(() => {

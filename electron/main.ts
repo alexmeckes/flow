@@ -5,6 +5,12 @@ import { ProcessManager } from './services/ProcessManagerPTY';
 import { CursorIntegration } from './services/CursorIntegration';
 import { CursorIntegrationEnhanced } from './services/CursorIntegrationEnhanced';
 import { StateManager } from './services/StateManager';
+import { setupCrashReporter } from './crashReporter';
+import { setupAdvancedCrashHandler } from './crashHandler';
+
+// Setup crash reporting immediately
+setupCrashReporter();
+setupAdvancedCrashHandler();
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV === 'development';
@@ -82,38 +88,102 @@ ipcMain.handle('process:remove', async (_, projectId) => {
   return processManager.removeProject(projectId);
 });
 
-ipcMain.handle('process:start', async (_, projectId) => {
-  return processManager.startClaudeCode(projectId);
+// Session management handlers
+ipcMain.handle('session:create', async (_, { projectId, name, description }) => {
+  return processManager.createSession(projectId, name, description);
 });
 
-ipcMain.handle('process:stop', async (_, projectId) => {
-  return processManager.stopClaudeCode(projectId);
+ipcMain.handle('session:remove', async (_, sessionId) => {
+  return processManager.removeSession(sessionId);
 });
 
-ipcMain.handle('process:command', async (_, { projectId, command }) => {
-  return processManager.sendCommand(projectId, command);
+ipcMain.handle('session:start', async (_, sessionId) => {
+  return processManager.startClaudeCode(sessionId);
 });
 
-ipcMain.handle('process:clearOutput', async (_, projectId) => {
-  return processManager.clearProjectOutput(projectId);
+ipcMain.handle('session:stop', async (_, sessionId) => {
+  return processManager.stopClaudeCode(sessionId);
+});
+
+ipcMain.handle('session:command', async (_, { sessionId, command }) => {
+  return processManager.sendCommand(sessionId, command);
+});
+
+ipcMain.handle('session:clearOutput', async (_, sessionId) => {
+  return processManager.clearSessionOutput(sessionId);
 });
 
 // Forward process events to renderer
 processManager.on('output', (data) => {
-  console.log(`[Main] Forwarding output for ${data.projectId}: ${data.output.substring(0, 30).replace(/\n/g, '\\n')}...`);
-  mainWindow?.webContents.send('process:output', data);
+  try {
+    if (!data) {
+      console.error('[Main] Received null/undefined output data');
+      return;
+    }
+    
+    // Remove verbose logging that can cause performance issues
+    if (typeof data.output === 'string' && data.output.includes('\x00')) {
+      data.output = data.output.replace(/\x00/g, '');
+    }
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('session:output', data);
+    }
+  } catch (error) {
+    console.error('[Main] Error in output handler:', error);
+    console.error('[Main] Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
+  }
 });
 
 processManager.on('status', (data) => {
-  mainWindow?.webContents.send('process:status', data);
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('session:status', data);
+    }
+  } catch (error) {
+    console.error('Error forwarding status:', error);
+  }
 });
 
 processManager.on('output:cleared', (data) => {
-  mainWindow?.webContents.send('process:output:cleared', data);
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('session:output:cleared', data);
+    }
+  } catch (error) {
+    console.error('Error forwarding output:cleared:', error);
+  }
 });
 
 processManager.on('progress', (data) => {
-  mainWindow?.webContents.send('process:progress', data);
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('session:progress', data);
+    }
+  } catch (error) {
+    console.error('Error forwarding progress:', error);
+  }
+});
+
+// Forward session events
+processManager.on('session:created', (data) => {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('session:created', data);
+    }
+  } catch (error) {
+    console.error('Error forwarding session:created:', error);
+  }
+});
+
+processManager.on('session:removed', (data) => {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('session:removed', data);
+    }
+  } catch (error) {
+    console.error('Error forwarding session:removed:', error);
+  }
 });
 
 // Cursor integration handlers
@@ -142,6 +212,7 @@ ipcMain.handle('cursor:checkOpen', async (_, projectPath) => {
     const window = await cursorIntegrationEnhanced.findCursorWindow(projectPath);
     return window !== null;
   } catch (error) {
+    console.error('Error checking Cursor window:', error);
     return false;
   }
 });

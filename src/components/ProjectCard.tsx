@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Project, ProgressState } from '../types';
+import { Project } from '../types';
 import { useProjectStore } from '../stores/projectStore';
-import { ClaudeTerminal } from './ClaudeTerminal';
-import { ProgressIndicator } from './ProgressIndicator';
+import { SessionCard } from './SessionCard';
 
 interface ProjectCardProps {
   project: Project;
@@ -10,99 +9,54 @@ interface ProjectCardProps {
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
-  const [showOutput, setShowOutput] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
-  const [isCursorOpen, setIsCursorOpen] = useState(false);
-  const [progressState, setProgressState] = useState<ProgressState | undefined>(project.progressState);
-  const [hasTerminal, setHasTerminal] = useState(false);
-  const { setActiveProject, removeProject } = useProjectStore();
+  const [showAddSession, setShowAddSession] = useState(false);
+  const [newSessionName, setNewSessionName] = useState('');
+  const [newSessionDescription, setNewSessionDescription] = useState('');
+  const { activeProjectId, activeSessionId, setActiveProject, setActiveSession, removeProject, getCursorStatus } = useProjectStore();
   
-  // Check if Cursor is open periodically
-  useEffect(() => {
-    const checkCursorStatus = async () => {
-      const isOpen = await window.electronAPI.checkCursorOpen(project.path);
-      setIsCursorOpen(isOpen);
-    };
-    
-    // Check immediately
-    checkCursorStatus();
-    
-    // Check every 3 seconds
-    const interval = setInterval(checkCursorStatus, 3000);
-    
-    return () => clearInterval(interval);
-  }, [project.path]);
-  
-  // Listen for progress updates
-  useEffect(() => {
-    const handleProgress = (projectId: string, newProgressState: ProgressState) => {
-      if (projectId === project.id) {
-        setProgressState(newProgressState);
-      }
-    };
-    
-    const removeProgressListener = window.electronAPI.onProcessProgress(handleProgress);
-    
-    // Cleanup listener on unmount or when project.id changes
-    return () => {
-      if (removeProgressListener) removeProgressListener();
-    };
-  }, [project.id]);
-  
-  // Check if terminal exists
-  useEffect(() => {
-    // Check if terminal already exists for this project
-    const terminalInstances = (window as any).__terminalInstances;
-    if (terminalInstances && terminalInstances.has(project.id)) {
-      setHasTerminal(true);
-    }
-  }, [project.id]);
-  
-  // Set hasTerminal when output is shown
-  useEffect(() => {
-    if (showOutput && !hasTerminal) {
-      setHasTerminal(true);
-    }
-  }, [showOutput, hasTerminal]);
+  // Get cursor status from centralized store
+  const isCursorOpen = getCursorStatus(project.path);
   
   const handleOpenInCursor = async () => {
     try {
       await window.electronAPI.openInCursor(project.path);
-      // Check status immediately after opening
-      setTimeout(async () => {
-        const isOpen = await window.electronAPI.checkCursorOpen(project.path);
-        setIsCursorOpen(isOpen);
-      }, 1000);
+      // The centralized checker will update the status
     } catch (error) {
       console.error('Failed to open in Cursor:', error);
     }
   };
   
-  const handleStart = async () => {
+  const handleCreateSession = async () => {
+    if (!newSessionName.trim()) return;
+    
     try {
-      await window.electronAPI.startClaudeCode(project.id);
+      const newSession = await window.electronAPI.createSession(project.id, newSessionName, newSessionDescription);
+      setShowAddSession(false);
+      setNewSessionName('');
+      setNewSessionDescription('');
+      
+      // Auto-select the new session if it's the only one or no session is active
+      if (newSession && (project.sessions.length === 0 || !activeSessionId)) {
+        setActiveSession(newSession.id);
+      }
     } catch (error) {
-      console.error('Failed to start Claude Code:', error);
-    }
-  };
-  
-  const handleStop = async () => {
-    try {
-      await window.electronAPI.stopClaudeCode(project.id);
-    } catch (error) {
-      console.error('Failed to stop Claude Code:', error);
+      console.error('Failed to create session:', error);
     }
   };
   
   const handleRemove = async () => {
     if (confirm(`Remove project "${project.name}"?`)) {
       try {
-        // Clean up terminal instance if it exists
+        // Clean up all session terminal instances
         const terminalInstances = (window as any).__terminalInstances;
-        if (terminalInstances && terminalInstances.has(project.id)) {
-          const instance = terminalInstances.get(project.id);
-          instance.terminal.dispose();
-          terminalInstances.delete(project.id);
+        if (terminalInstances) {
+          project.sessions.forEach(session => {
+            if (terminalInstances.has(session.id)) {
+              const instance = terminalInstances.get(session.id);
+              instance.terminal.dispose();
+              terminalInstances.delete(session.id);
+            }
+          });
         }
         
         await window.electronAPI.removeProject(project.id);
@@ -113,42 +67,31 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
     }
   };
   
-  // Quick action buttons for common responses
-  const handleQuickResponse = async (response: string) => {
-    try {
-      await window.electronAPI.sendCommand(project.id, response);
-    } catch (error) {
-      console.error('Failed to send quick response:', error);
+  const hasActiveSessions = project.sessions.some(s => s.status === 'active');
+  const getProjectStatusText = () => {
+    const activeCount = project.sessions.filter(s => s.status === 'active').length;
+    if (activeCount > 0) {
+      return `${activeCount} active session${activeCount > 1 ? 's' : ''}`;
     }
-  };
-  
-  const getStatusColor = () => {
-    switch (project.status) {
-      case 'active': return 'text-claude-success';
-      case 'error': return 'text-claude-error';
-      default: return 'text-gray-500';
-    }
-  };
-  
-  const getStatusIcon = () => {
-    switch (project.status) {
-      case 'active': return '●';
-      case 'error': return '⚠️';
-      default: return '○';
-    }
+    return 'No active sessions';
   };
   
   return (
     <div 
       className="bg-claude-surface border border-claude-border rounded-lg p-4 hover:border-gray-600 transition-colors cursor-pointer"
-      onClick={() => setActiveProject(project.id)}
+      onClick={() => {
+        setActiveProject(project.id);
+        // Auto-select first session if available and no session is currently active
+        if (project.sessions.length > 0 && (!activeSessionId || !project.sessions.find(s => s.id === activeSessionId))) {
+          setActiveSession(project.sessions[0].id);
+        }
+      }}
     >
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-2xl">{index + 1}️⃣</span>
           <h3 className="text-lg font-semibold">{project.name}</h3>
-          <span className={`${getStatusColor()}`}>{getStatusIcon()}</span>
-          <span className="text-sm text-gray-500 capitalize">[{project.status}]</span>
+          <span className="text-sm text-gray-500">({getProjectStatusText()})</span>
           {isCursorOpen && (
             <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">
               Cursor
@@ -166,17 +109,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
         </button>
       </div>
       
-      <div className="text-sm text-gray-400 mb-2">{project.path}</div>
+      <div className="text-sm text-gray-400 mb-3">{project.path}</div>
       
-      {project.lastCommand && (
-        <div className="text-sm mb-2">
-          <span className="text-gray-500">Last command:</span> {project.lastCommand}
-        </div>
-      )}
-      
-      <ProgressIndicator progressState={progressState} />
-      
-      <div className="flex gap-2 mt-3">
+      {/* Action buttons */}
+      <div className="flex gap-2 mb-4">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -194,101 +130,84 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, index }) => {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            setShowOutput(!showOutput);
-            if (!showOutput) {
-              setIsMinimized(false);
-            }
+            setShowAddSession(true);
           }}
-          className="px-3 py-1 text-sm bg-claude-border rounded hover:bg-gray-600"
+          className="px-3 py-1 text-sm bg-claude-primary text-white rounded hover:bg-blue-600"
         >
-          {showOutput ? 'Hide' : 'View'} Terminal
+          + Add Session
         </button>
+      </div>
+      
+      {/* Sessions */}
+      <div className="space-y-3">
+        {project.sessions.map((session, sessionIndex) => (
+          <SessionCard 
+            key={session.id} 
+            session={session} 
+            projectPath={project.path}
+            index={sessionIndex} 
+          />
+        ))}
         
-        {project.status === 'idle' ? (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleStart();
-            }}
-            className="px-3 py-1 text-sm bg-claude-success text-white rounded hover:bg-green-600"
-          >
-            Start
-          </button>
-        ) : project.status === 'active' ? (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleStop();
-            }}
-            className="px-3 py-1 text-sm bg-claude-warning text-white rounded hover:bg-orange-600"
-          >
-            Stop
-          </button>
-        ) : (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleStart();
-            }}
-            className="px-3 py-1 text-sm bg-claude-error text-white rounded hover:bg-red-600"
-          >
-            Restart
-          </button>
+        {project.sessions.length === 0 && (
+          <div className="text-center py-4 text-gray-500 text-sm">
+            No sessions yet. Click "Add Session" to start.
+          </div>
         )}
       </div>
       
-      {/* Quick response buttons if we see a prompt - only show when terminal is visible */}
-      {showOutput && project.output.some(line => line.includes('Yes, proceed')) && (
-        <div className="mt-3 mb-2 flex gap-2">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleQuickResponse('1');
-            }}
-            className="px-3 py-1 text-sm bg-claude-primary text-white rounded hover:bg-blue-600"
-          >
-            Send "1" (Yes)
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleQuickResponse('2');
-            }}
-            className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
-          >
-            Send "2" (No)
-          </button>
-        </div>
-      )}
-      
-      {/* Terminal container - always rendered once opened, just hidden when not showing */}
-      {hasTerminal && (
-        <div style={{ display: showOutput && !isMinimized ? 'block' : 'none' }}>
-          <ClaudeTerminal 
-            project={project} 
-            onClose={() => setShowOutput(false)}
-            onMinimize={() => setIsMinimized(true)}
-          />
-        </div>
-      )}
-      
-      {/* Show minimized bar when terminal is minimized */}
-      {showOutput && isMinimized && (
-        <div className="mt-3 border border-claude-border rounded-lg overflow-hidden">
-          <div className="bg-gray-900 px-4 py-2 flex items-center justify-between">
-            <span className="text-gray-400 text-sm">
-              {project.name} - Terminal (Minimized)
-            </span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsMinimized(false);
-              }}
-              className="text-gray-400 hover:text-white px-2"
-              title="Restore"
-            >
-              ⬜
-            </button>
+      {/* Add Session Modal */}
+      {showAddSession && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-claude-surface rounded-lg p-6 w-96">
+            <h3 className="text-lg font-semibold mb-4">Add New Session</h3>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Session Name</label>
+              <input
+                type="text"
+                value={newSessionName}
+                onChange={(e) => setNewSessionName(e.target.value)}
+                className="w-full bg-claude-bg text-gray-100 px-3 py-2 rounded border border-claude-border focus:border-claude-primary focus:outline-none"
+                placeholder="Feature Development"
+                autoFocus
+              />
+            </div>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium mb-2">Description (optional)</label>
+              <input
+                type="text"
+                value={newSessionDescription}
+                onChange={(e) => setNewSessionDescription(e.target.value)}
+                className="w-full bg-claude-bg text-gray-100 px-3 py-2 rounded border border-claude-border focus:border-claude-primary focus:outline-none"
+                placeholder="Working on user authentication feature"
+              />
+            </div>
+            
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowAddSession(false);
+                  setNewSessionName('');
+                  setNewSessionDescription('');
+                }}
+                className="px-4 py-2 bg-claude-border rounded hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreateSession();
+                }}
+                className="px-4 py-2 bg-claude-primary text-white rounded hover:bg-blue-600"
+                disabled={!newSessionName.trim()}
+              >
+                Create Session
+              </button>
+            </div>
           </div>
         </div>
       )}

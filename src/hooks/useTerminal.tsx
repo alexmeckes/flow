@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { Project } from '../types';
+import { ClaudeSession } from '../types';
 
 // Global terminal instances to persist across component unmounts
 interface TerminalInstance {
@@ -18,7 +18,7 @@ if (typeof window !== 'undefined') {
   (window as any).__terminalInstances = terminalInstances;
 }
 
-export const useTerminal = (project: Project, fontSize: number) => {
+export const useTerminal = (session: ClaudeSession, projectPath: string, fontSize: number) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const [terminal, setTerminal] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
@@ -26,12 +26,12 @@ export const useTerminal = (project: Project, fontSize: number) => {
   useEffect(() => {
     if (!terminalRef.current) return;
     
-    // Check if we already have a terminal for this project
-    let instance = terminalInstances.get(project.id);
+    // Check if we already have a terminal for this session
+    let instance = terminalInstances.get(session.id);
     
     if (!instance) {
       // Create new terminal instance
-      console.log(`Creating new terminal for project ${project.id}`);
+      console.log(`Creating new terminal for session ${session.id}`);
       const term = new Terminal({
         cursorBlink: true,
         fontSize,
@@ -51,47 +51,47 @@ export const useTerminal = (project: Project, fontSize: number) => {
       
       // Handle user input - send it to Claude
       term.onData((data) => {
-        window.electronAPI.sendCommand(project.id, data);
+        window.electronAPI.sendSessionCommand(session.id, data);
       });
       
       instance = { 
         terminal: term, 
         fitAddon: fit, 
-        buffer: [...project.output],
+        buffer: [...session.output],
         lastWrittenIndex: -1
       };
-      terminalInstances.set(project.id, instance);
+      terminalInstances.set(session.id, instance);
       
       // Write all existing output to the new terminal
-      if (project.output.length > 0) {
-        console.log(`Writing ${project.output.length} existing outputs to new terminal`);
-        for (const output of project.output) {
+      if (session.output.length > 0) {
+        console.log(`Writing ${session.output.length} existing outputs to new terminal`);
+        for (const output of session.output) {
           term.write(output);
         }
-        instance.lastWrittenIndex = project.output.length - 1;
+        instance.lastWrittenIndex = session.output.length - 1;
       }
     } else {
       // Reusing existing terminal
-      console.log(`Reusing existing terminal for project ${project.id}`);
+      console.log(`Reusing existing terminal for session ${session.id}`);
       // Update font size if it changed
       instance.terminal.options.fontSize = fontSize;
       
-      // Check if terminal buffer is out of sync with project output
-      if (instance.buffer.length !== project.output.length) {
-        console.log(`Terminal buffer out of sync. Buffer: ${instance.buffer.length}, Output: ${project.output.length}`);
+      // Check if terminal buffer is out of sync with session output
+      if (instance.buffer.length !== session.output.length) {
+        console.log(`Terminal buffer out of sync. Buffer: ${instance.buffer.length}, Output: ${session.output.length}`);
         // Clear and rewrite everything
         instance.terminal.clear();
-        for (const output of project.output) {
+        for (const output of session.output) {
           instance.terminal.write(output);
         }
-        instance.buffer = [...project.output];
-        instance.lastWrittenIndex = project.output.length - 1;
+        instance.buffer = [...session.output];
+        instance.lastWrittenIndex = session.output.length - 1;
       }
     }
     
     // Only attach to DOM if not already attached
     if (!instance.terminal.element || instance.terminal.element.parentElement !== terminalRef.current) {
-      console.log(`Attaching terminal to DOM for project ${project.id}`);
+      console.log(`Attaching terminal to DOM for session ${session.id}`);
       instance.terminal.open(terminalRef.current);
     }
     
@@ -114,53 +114,53 @@ export const useTerminal = (project: Project, fontSize: number) => {
       // Don't dispose or clear - the terminal will be reused
       // The terminal.open() method handles DOM cleanup when attaching to a new element
     };
-  }, [project.id, fontSize]);
+  }, [session.id, fontSize]);
   
-  // Update terminal when project output changes
+  // Update terminal when session output changes
   useEffect(() => {
-    const instance = terminalInstances.get(project.id);
-    if (!instance || !project.output.length) return;
+    const instance = terminalInstances.get(session.id);
+    if (!instance || !session.output.length) return;
     
     // Only write new outputs that haven't been written yet
     const startIndex = instance.lastWrittenIndex + 1;
-    if (startIndex < project.output.length) {
-      console.log(`Writing outputs ${startIndex} to ${project.output.length - 1} for project ${project.id}`);
-      for (let i = startIndex; i < project.output.length; i++) {
-        instance.terminal.write(project.output[i]);
+    if (startIndex < session.output.length) {
+      console.log(`Writing outputs ${startIndex} to ${session.output.length - 1} for session ${session.id}`);
+      for (let i = startIndex; i < session.output.length; i++) {
+        instance.terminal.write(session.output[i]);
       }
-      instance.lastWrittenIndex = project.output.length - 1;
+      instance.lastWrittenIndex = session.output.length - 1;
       // Update buffer
-      instance.buffer = [...project.output];
+      instance.buffer = [...session.output];
     }
     
     // Ensure we're scrolled to the bottom to see new output
     instance.terminal.scrollToBottom();
-  }, [project.id, project.output]);
+  }, [session.id, session.output]);
   
   // Clear terminal when output is cleared
   useEffect(() => {
-    const instance = terminalInstances.get(project.id);
-    if (instance && project.output.length === 0) {
-      console.log(`Clearing terminal for project ${project.id}`);
+    const instance = terminalInstances.get(session.id);
+    if (instance && session.output.length === 0) {
+      console.log(`Clearing terminal for session ${session.id}`);
       instance.terminal.clear();
       instance.buffer = []; // Clear buffer
       instance.lastWrittenIndex = -1; // Reset tracking
     }
-  }, [project.id, project.output.length]);
+  }, [session.id, session.output.length]);
   
   const clearTerminal = async () => {
-    const instance = terminalInstances.get(project.id);
+    const instance = terminalInstances.get(session.id);
     if (instance) {
       instance.terminal.clear();
-      await window.electronAPI.clearProjectOutput(project.id);
+      await window.electronAPI.clearSessionOutput(session.id);
     }
   };
   
   const disposeTerminal = () => {
-    const instance = terminalInstances.get(project.id);
+    const instance = terminalInstances.get(session.id);
     if (instance) {
       instance.terminal.dispose();
-      terminalInstances.delete(project.id);
+      terminalInstances.delete(session.id);
     }
   };
   

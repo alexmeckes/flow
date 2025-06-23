@@ -5,22 +5,22 @@ export interface IElectronAPI {
   // Process management
   createProject: (name: string, path: string) => Promise<any>;
   removeProject: (projectId: string) => Promise<boolean>;
-  startClaudeCode: (projectId: string) => Promise<void>;
-  stopClaudeCode: (projectId: string) => Promise<void>;
-  sendCommand: (projectId: string, command: string) => Promise<void>;
-  clearProjectOutput: (projectId: string) => Promise<void>;
   
-  // Listen for process output
-  onProcessOutput: (callback: (projectId: string, output: string) => void) => (() => void);
+  // Session management
+  createSession: (projectId: string, name: string, description?: string) => Promise<any>;
+  removeSession: (sessionId: string) => Promise<boolean>;
+  startClaudeSession: (sessionId: string) => Promise<void>;
+  stopClaudeSession: (sessionId: string) => Promise<void>;
+  sendSessionCommand: (sessionId: string, command: string) => Promise<void>;
+  clearSessionOutput: (sessionId: string) => Promise<void>;
   
-  // Listen for process status changes
-  onProcessStatus: (callback: (projectId: string, status: string) => void) => (() => void);
-  
-  // Listen for output cleared
-  onProcessOutputCleared: (callback: (projectId: string) => void) => (() => void);
-  
-  // Listen for progress updates
-  onProcessProgress: (callback: (projectId: string, progressState: any) => void) => (() => void);
+  // Listen for session events
+  onSessionOutput: (callback: (sessionId: string, projectId: string, output: string) => void) => (() => void);
+  onSessionStatus: (callback: (sessionId: string, projectId: string, status: string) => void) => (() => void);
+  onSessionOutputCleared: (callback: (sessionId: string, projectId: string) => void) => (() => void);
+  onSessionProgress: (callback: (sessionId: string, projectId: string, progressState: any) => void) => (() => void);
+  onSessionCreated: (callback: (projectId: string, session: any) => void) => (() => void);
+  onSessionRemoved: (callback: (projectId: string, sessionId: string) => void) => (() => void);
   
   // Cursor integration
   openInCursor: (projectPath: string) => Promise<void>;

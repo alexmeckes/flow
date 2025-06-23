@@ -107,11 +107,26 @@ export class CursorIntegrationEnhanced {
       // Look for Cursor windows
       for (const window of windows) {
         try {
-          // Get window title
-          const title = window.getTitle() || '';
+          // Skip if window object is invalid
+          if (!window) continue;
           
           // Skip if window is not visible
-          if (!window.isVisible()) continue;
+          try {
+            if (!window.isVisible || !window.isVisible()) continue;
+          } catch (e) {
+            // Window might be invalid, skip it
+            continue;
+          }
+          
+          // Get window title safely
+          let title = '';
+          try {
+            const rawTitle = window.getTitle ? window.getTitle() : null;
+            title = rawTitle ? String(rawTitle) : '';
+          } catch (e) {
+            // If we can't get the title, skip this window
+            continue;
+          }
           
           // Check if this is a Cursor window
           const isCursor = title.toLowerCase().includes('cursor');
@@ -125,7 +140,7 @@ export class CursorIntegrationEnhanced {
             }
             
             // Also check if we previously mapped this window to this project
-            if (this.projectWindowMap.get(projectPath) === window.id) {
+            if (window.id && this.projectWindowMap.get(projectPath) === window.id) {
               return window;
             }
           }

@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
-import { Project } from '../types';
+import { ClaudeSession } from '../types';
 import { useTerminal } from '../hooks/useTerminal';
 import '@xterm/xterm/css/xterm.css';
 
 interface ClaudeTerminalProps {
-  project: Project;
+  session: ClaudeSession;
+  projectPath: string;
   onClose?: () => void;
   onMinimize?: () => void;
 }
 
-export const ClaudeTerminal: React.FC<ClaudeTerminalProps> = ({ project, onClose, onMinimize }) => {
+export const ClaudeTerminal: React.FC<ClaudeTerminalProps> = ({ session, projectPath, onClose, onMinimize }) => {
   const [fontSize, setFontSize] = useState(14);
-  const { terminalRef, clearTerminal } = useTerminal(project, fontSize);
+  const { terminalRef, clearTerminal } = useTerminal(session, projectPath, fontSize);
   
   return (
     <div className="mt-3 border border-claude-border rounded-lg overflow-hidden">
@@ -24,7 +25,7 @@ export const ClaudeTerminal: React.FC<ClaudeTerminalProps> = ({ project, onClose
             <div className="w-3 h-3 rounded-full bg-green-500"></div>
           </div>
           <span className="text-gray-400 text-sm font-mono">
-            {project.name} - Claude Terminal
+            {session.name} - Claude Terminal
           </span>
         </div>
         
@@ -91,7 +92,7 @@ export const ClaudeTerminal: React.FC<ClaudeTerminalProps> = ({ project, onClose
       {/* Status Bar */}
       <div className="bg-gray-900 px-4 py-1 text-xs text-gray-400 border-t border-gray-700">
         <div className="flex justify-between">
-          <span>Status: {project.status}</span>
+          <span>Status: {session.status}</span>
           <span>{new Date().toLocaleTimeString()}</span>
         </div>
       </div>

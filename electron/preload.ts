@@ -13,48 +13,70 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeProject: (projectId: string) => 
     ipcRenderer.invoke('process:remove', projectId),
   
-  startClaudeCode: (projectId: string) => 
-    ipcRenderer.invoke('process:start', projectId),
+  // Session management
+  createSession: (projectId: string, name: string, description?: string) => 
+    ipcRenderer.invoke('session:create', { projectId, name, description }),
   
-  stopClaudeCode: (projectId: string) => 
-    ipcRenderer.invoke('process:stop', projectId),
+  removeSession: (sessionId: string) => 
+    ipcRenderer.invoke('session:remove', sessionId),
   
-  sendCommand: (projectId: string, command: string) => 
-    ipcRenderer.invoke('process:command', { projectId, command }),
+  startClaudeSession: (sessionId: string) => 
+    ipcRenderer.invoke('session:start', sessionId),
   
-  clearProjectOutput: (projectId: string) => 
-    ipcRenderer.invoke('process:clearOutput', projectId),
+  stopClaudeSession: (sessionId: string) => 
+    ipcRenderer.invoke('session:stop', sessionId),
   
-  // Listen for process output
-  onProcessOutput: (callback: (projectId: string, output: string) => void) => {
-    const handler = (_: any, data: any) => callback(data.projectId, data.output);
-    ipcRenderer.on('process:output', handler);
+  sendSessionCommand: (sessionId: string, command: string) => 
+    ipcRenderer.invoke('session:command', { sessionId, command }),
+  
+  clearSessionOutput: (sessionId: string) => 
+    ipcRenderer.invoke('session:clearOutput', sessionId),
+  
+  // Listen for session output
+  onSessionOutput: (callback: (sessionId: string, projectId: string, output: string) => void) => {
+    const handler = (_: any, data: any) => callback(data.sessionId, data.projectId, data.output);
+    ipcRenderer.on('session:output', handler);
     // Return cleanup function
-    return () => ipcRenderer.removeListener('process:output', handler);
+    return () => ipcRenderer.removeListener('session:output', handler);
   },
   
-  // Listen for process status changes
-  onProcessStatus: (callback: (projectId: string, status: string) => void) => {
-    const handler = (_: any, data: any) => callback(data.projectId, data.status);
-    ipcRenderer.on('process:status', handler);
+  // Listen for session status changes
+  onSessionStatus: (callback: (sessionId: string, projectId: string, status: string) => void) => {
+    const handler = (_: any, data: any) => callback(data.sessionId, data.projectId, data.status);
+    ipcRenderer.on('session:status', handler);
     // Return cleanup function
-    return () => ipcRenderer.removeListener('process:status', handler);
+    return () => ipcRenderer.removeListener('session:status', handler);
   },
   
   // Listen for output cleared
-  onProcessOutputCleared: (callback: (projectId: string) => void) => {
-    const handler = (_: any, data: any) => callback(data.projectId);
-    ipcRenderer.on('process:output:cleared', handler);
+  onSessionOutputCleared: (callback: (sessionId: string, projectId: string) => void) => {
+    const handler = (_: any, data: any) => callback(data.sessionId, data.projectId);
+    ipcRenderer.on('session:output:cleared', handler);
     // Return cleanup function
-    return () => ipcRenderer.removeListener('process:output:cleared', handler);
+    return () => ipcRenderer.removeListener('session:output:cleared', handler);
   },
   
   // Listen for progress updates
-  onProcessProgress: (callback: (projectId: string, progressState: any) => void) => {
-    const handler = (_: any, data: any) => callback(data.projectId, data.progressState);
-    ipcRenderer.on('process:progress', handler);
+  onSessionProgress: (callback: (sessionId: string, projectId: string, progressState: any) => void) => {
+    const handler = (_: any, data: any) => callback(data.sessionId, data.projectId, data.progressState);
+    ipcRenderer.on('session:progress', handler);
     // Return cleanup function
-    return () => ipcRenderer.removeListener('process:progress', handler);
+    return () => ipcRenderer.removeListener('session:progress', handler);
+  },
+  
+  // Listen for session events
+  onSessionCreated: (callback: (projectId: string, session: any) => void) => {
+    const handler = (_: any, data: any) => callback(data.projectId, data.session);
+    ipcRenderer.on('session:created', handler);
+    // Return cleanup function
+    return () => ipcRenderer.removeListener('session:created', handler);
+  },
+  
+  onSessionRemoved: (callback: (projectId: string, sessionId: string) => void) => {
+    const handler = (_: any, data: any) => callback(data.projectId, data.sessionId);
+    ipcRenderer.on('session:removed', handler);
+    // Return cleanup function
+    return () => ipcRenderer.removeListener('session:removed', handler);
   },
   
   // Cursor integration

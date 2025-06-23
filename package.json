@@ -13,7 +13,9 @@
     "build:electron": "tsc -p electron/tsconfig.json",
     "start": "electron .",
     "dist": "npm run build && electron-builder",
-    "test": "vitest"
+    "test": "vitest",
+    "postinstall": "electron-rebuild -f -w node-pty",
+    "rebuild": "electron-rebuild -f -w node-pty"
   },
   "repository": {
     "type": "git",
